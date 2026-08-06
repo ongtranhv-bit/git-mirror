@@ -57,6 +57,20 @@ Hook relay ghi event vào:
 
 Node key dưới `/sync/events/pending/{eventId}` là event ID chính thức. Worker tự ghi `eventId` vào runtime event.
 
+## GitHub webhook bridge
+
+Khi webhook GitHub trỏ trực tiếp vào RTDB (VD `/github-noti.json`), payload thô nằm thành từng child dưới node đó. Bridge đọc các delivery đó, lọc event `push`, chuyển sang `HookEvent` và ghi vào `/sync/events/pending`:
+
+```bash
+node dist/cli.js webhook:bridge
+node dist/cli.js webhook:bridge --once
+```
+
+- Node mặc định là `/github-noti`, đổi bằng `WEBHOOK_PATH`.
+- Mỗi delivery được claim bằng RTDB transaction (thêm `_bridge`), tránh xử lý trùng khi nhiều instance.
+- Event ping/branch-delete bị skip và đánh dấu `skipped` trong `_bridge`.
+- Chạy song song với `node dist/cli.js run` để hoàn tất pipeline: webhook → pending → sync.
+
 ## Sync thủ công
 
 Dry-run vẫn clone/fetch/check để phát hiện lỗi, nhưng không create repo thật và không push:

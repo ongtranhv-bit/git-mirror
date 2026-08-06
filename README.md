@@ -104,7 +104,10 @@ replay --event <eventId>
 config:encode <config.json>
 config:decode <config.b64>
 config:push <config.json>
+webhook:bridge [--once]
 ```
+
+`webhook:bridge` đọc delivery webhook GitHub nằm dưới node RTDB (mặc định `/github-noti`, đổi bằng `WEBHOOK_PATH`), chuyển event push sang `/sync/events/pending` để worker xử lý.
 
 Chi tiết trong [`USAGE.md`](USAGE.md), triển khai trong [`DEPLOY.md`](DEPLOY.md), xử lý lỗi trong [`ERROR.md`](ERROR.md).
 
