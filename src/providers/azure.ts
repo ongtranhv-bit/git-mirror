@@ -12,6 +12,17 @@ interface AzureRepositoryResponse {
   project: { id: string; name: string };
 }
 
+function stripUrlUserinfo(value: string): string {
+  try {
+    const url = new URL(value);
+    url.username = '';
+    url.password = '';
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
 export class AzureProvider implements ProviderAdapter {
   readonly destinationId: string;
   readonly config: DestinationConfig;
@@ -91,7 +102,7 @@ export class AzureProvider implements ProviderAdapter {
       org,
       project: repository.project.name,
       repo: repository.name,
-      cloneUrl: repository.remoteUrl,
+      cloneUrl: stripUrlUserinfo(repository.remoteUrl),
       webUrl: repository.webUrl,
     };
   }
