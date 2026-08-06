@@ -98,7 +98,11 @@
     "retryBackoffMs": 2000,
     "gitTimeoutMs": 600000,
     "apiTimeoutMs": 30000,
-    "logLevel": "info"
+    "logLevel": "info",
+    "codespaceKeepalive": {
+      "enabled": true,
+      "intervalMinutes": 10
+    }
   },
   "rtdb": {
     "configPath": "/sync/config",

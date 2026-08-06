@@ -28,6 +28,10 @@ const DEFAULT_RUNTIME: RuntimeConfig = {
   gitTimeoutMs: 600_000,
   apiTimeoutMs: 30_000,
   logLevel: 'info',
+  codespaceKeepalive: {
+    enabled: true,
+    intervalMinutes: 10,
+  },
 };
 
 const DEFAULT_RTDB: RtdbPaths = {
@@ -256,6 +260,7 @@ function parseRuntime(value: unknown, issues: string[]): RuntimeConfig {
   if (!['debug', 'info', 'warn', 'error'].includes(logLevel)) {
     issues.push('$.runtime.logLevel: expected debug, info, warn, or error.');
   }
+  const keepaliveObject = optionalObject(object?.codespaceKeepalive, '$.runtime.codespaceKeepalive', issues);
   return {
     workdir: stringValue(object?.workdir, '$.runtime.workdir', issues, DEFAULT_RUNTIME.workdir),
     lockTtlSeconds: integer(object?.lockTtlSeconds, '$.runtime.lockTtlSeconds', issues, DEFAULT_RUNTIME.lockTtlSeconds, 10),
@@ -272,6 +277,21 @@ function parseRuntime(value: unknown, issues: string[]): RuntimeConfig {
     gitTimeoutMs: integer(object?.gitTimeoutMs, '$.runtime.gitTimeoutMs', issues, DEFAULT_RUNTIME.gitTimeoutMs, 1_000),
     apiTimeoutMs: integer(object?.apiTimeoutMs, '$.runtime.apiTimeoutMs', issues, DEFAULT_RUNTIME.apiTimeoutMs, 1_000),
     logLevel: ['debug', 'info', 'warn', 'error'].includes(logLevel) ? (logLevel as RuntimeConfig['logLevel']) : 'info',
+    codespaceKeepalive: {
+      enabled: booleanValue(
+        keepaliveObject?.enabled,
+        '$.runtime.codespaceKeepalive.enabled',
+        issues,
+        DEFAULT_RUNTIME.codespaceKeepalive.enabled,
+      ),
+      intervalMinutes: integer(
+        keepaliveObject?.intervalMinutes,
+        '$.runtime.codespaceKeepalive.intervalMinutes',
+        issues,
+        DEFAULT_RUNTIME.codespaceKeepalive.intervalMinutes,
+        1,
+      ),
+    },
   };
 }
 

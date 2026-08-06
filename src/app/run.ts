@@ -12,6 +12,7 @@ import {
 } from '../rtdb/events.js';
 import { startHeartbeat } from '../rtdb/instances.js';
 import { processHookEvent } from '../sync/router.js';
+import { startCodespaceKeepalive } from './keepalive.js';
 import { createShutdownController } from './shutdown.js';
 
 export function createInstanceId(): string {
@@ -74,6 +75,10 @@ export async function runWorker(input: {
 
   const listener = listenPendingEvents(options);
   const shutdown = createShutdownController();
+  const stopKeepalive = startCodespaceKeepalive({
+    config: input.config.runtime.codespaceKeepalive,
+    logger: input.logger,
+  });
   const reaper = setInterval(
     () => void recoverExpiredJobs(input.client, input.config.rtdb),
     Math.max(5_000, input.config.runtime.heartbeatSeconds * 1_000),
@@ -89,6 +94,7 @@ export async function runWorker(input: {
   await listener.idle();
   clearInterval(reaper);
   clearInterval(cleaner);
+  stopKeepalive.stop();
   await stopHeartbeat();
   shutdown.dispose();
   return { processed: caughtUp, instanceId };

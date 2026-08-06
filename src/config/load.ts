@@ -82,5 +82,13 @@ function parseRawConfig(source: string, env: NodeJS.ProcessEnv): AppConfig {
   if (Number.isFinite(envRetention) && envRetention > 0) {
     config.rtdb.retentionDays = envRetention;
   }
+  if (env.CODESPACE_KEEPALIVE_ENABLED !== undefined) {
+    const value = env.CODESPACE_KEEPALIVE_ENABLED.trim().toLowerCase();
+    config.runtime.codespaceKeepalive.enabled = value === '1' || value === 'true' || value === 'yes';
+  }
+  const envKeepaliveInterval = Number(env.CODESPACE_KEEPALIVE_INTERVAL_MINUTES);
+  if (Number.isFinite(envKeepaliveInterval) && envKeepaliveInterval > 0) {
+    config.runtime.codespaceKeepalive.intervalMinutes = envKeepaliveInterval;
+  }
   return config;
 }

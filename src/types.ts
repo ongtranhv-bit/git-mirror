@@ -60,6 +60,11 @@ export interface ManyToOneDestination extends DestinationBase {
 
 export type DestinationConfig = OneToOneDestination | ManyToOneDestination;
 
+export interface CodespaceKeepaliveConfig {
+  enabled: boolean;
+  intervalMinutes: number;
+}
+
 export interface RuntimeConfig {
   workdir: string;
   lockTtlSeconds: number;
@@ -70,6 +75,7 @@ export interface RuntimeConfig {
   gitTimeoutMs: number;
   apiTimeoutMs: number;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
+  codespaceKeepalive: CodespaceKeepaliveConfig;
 }
 
 export interface RtdbPaths {

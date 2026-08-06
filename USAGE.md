@@ -89,6 +89,27 @@ RTDB_RETENTION_DAYS=7
 
 Worker khởi động cũng chạy `processAllPending` để bắt kịp event còn tồn đọng trước khi lắng nghe realtime.
 
+## Keep-alive Codespace (tự động trong listener)
+
+Khi service chạy bên trong GitHub Codespaces, listener tự động giữ codespace sống: cứ mỗi khoảng thời gian lại mở một kết nối `gh codespace ssh -c <CODESPACE_NAME> -- true` ngắn — kết nối đang hoạt động sẽ reset idle timer nên codespace không bị auto-stop.
+
+Bật/tắt và tần suất qua config hoặc env:
+
+```json
+{ "runtime": { "codespaceKeepalive": { "enabled": true, "intervalMinutes": 10 } } }
+```
+
+```bash
+CODESPACE_KEEPALIVE_ENABLED=true
+CODESPACE_KEEPALIVE_INTERVAL_MINUTES=10
+```
+
+Guard (tránh lỗi): chỉ chạy khi **cả 3** điều kiện đúng — `CODESPACES=true`, `CODESPACE_NAME` có giá trị, và có `gh` CLI. Nếu thiếu một trong ba, listener log `codespace.keepalive_skipped` với lý do rồi bỏ qua (không lỗi). Nếu tắt hẳn: log `codespace.keepalive_disabled`.
+
+Chạy ngoài codespace (máy luôn bật) thì dùng `scripts/codespace-keepalive/external.sh [name]` — giữ kết nối SSH persistent và tự khởi động lại codespace nếu bị stop; có thể lên lịch cron mỗi 5 phút.
+
+Lưu ý chi phí: giữ codespace sống sẽ tính phí giờ sử dụng cho tới khi hết quota.
+
 ## Lọc/bỏ qua notification
 
 Cấu hình loại trừ push theo commit message, phù hợp khi webhook org gửi mọi repo. Event khớp rule sẽ bị skip ngay tại bridge (không vào `pending`); nếu đã vào `pending`, worker đánh dấu destination là `skipped` với code `COMMIT_FILTERED`.

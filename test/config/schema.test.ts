@@ -79,3 +79,20 @@ test('rejects Azure without project', () => {
   delete ((input.dest as Record<string, Record<string, unknown>>).azure ?? {}).project;
   assert.throws(() => parseConfig(input), /required for Azure DevOps/);
 });
+
+test('parses codespaceKeepalive defaults and overrides', () => {
+  const config = parseConfig(validConfig());
+  assert.deepEqual(config.runtime.codespaceKeepalive, { enabled: true, intervalMinutes: 10 });
+
+  const input = validConfig();
+  (input as Record<string, unknown>).runtime = {
+    codespaceKeepalive: { enabled: false, intervalMinutes: 30 },
+  };
+  const overridden = parseConfig(input);
+  assert.deepEqual(overridden.runtime.codespaceKeepalive, { enabled: false, intervalMinutes: 30 });
+
+  (input as Record<string, unknown>).runtime = {
+    codespaceKeepalive: { enabled: 'yes', intervalMinutes: 0 },
+  };
+  assert.throws(() => parseConfig(input), /codespaceKeepalive\.intervalMinutes/);
+});

@@ -85,6 +85,7 @@ export function baseConfig(workdir: string, destinations: Record<string, Destina
       gitTimeoutMs: 30_000,
       apiTimeoutMs: 5_000,
       logLevel: 'error',
+      codespaceKeepalive: { enabled: false, intervalMinutes: 10 },
     },
     rtdb: {
       configPath: '/sync/config',
