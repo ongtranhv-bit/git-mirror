@@ -51,7 +51,7 @@ export function apiHeaders(credential: CredentialConfig): Record<string, string>
 }
 
 function defaultScheme(type: CredentialConfig['type'], purpose: 'git' | 'api'): NonNullable<CredentialConfig['scheme']> {
-  if (type === 'github') return 'bearer';
+  if (type === 'github') return purpose === 'git' ? 'basic' : 'bearer';
   if (type === 'azure') return 'basic';
   if (type === 'gitea') return purpose === 'api' ? 'token' : 'basic';
   return 'basic';

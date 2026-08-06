@@ -4,12 +4,14 @@ import { resolve } from 'node:path';
 import { checkRepositories } from './app/check.js';
 import { initRepositories } from './app/init.js';
 import { createInstanceId, runWorker } from './app/run.js';
+import { createShutdownController } from './app/shutdown.js';
 import { decodeBase64, encodeConfig, loadConfig } from './config/load.js';
 import { createRtdbClientFromEnv, type RtdbClient } from './rtdb/client.js';
 import { replayEvent } from './rtdb/events.js';
 import { toPublicError } from './shared/errors.js';
 import { createLogger } from './shared/logger.js';
 import { processHookEvent } from './sync/router.js';
+import { bridgeOnce, bridgePendingEvents } from './webhook/github-bridge.js';
 import type { AppConfig, HookEvent } from './types.js';
 
 interface ParsedArgs {
@@ -69,7 +71,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const client = ['run', 'replay'].includes(parsed.command) ? createRtdbClientFromEnv() : optionalRtdbClient();
+  const client = ['run', 'replay', 'webhook:bridge'].includes(parsed.command) ? createRtdbClientFromEnv() : optionalRtdbClient();
   const config = await loadCommandConfig(parsed, client);
   const logger = createLogger(config.runtime.logLevel, { service: 'git-mirror' });
 
@@ -114,6 +116,27 @@ async function main(): Promise<void> {
     const eventId = requiredValue(stringOption(parsed.options, 'event'), 'replay requires --event <id>.');
     await replayEvent(client, config.rtdb, eventId);
     console.log(JSON.stringify({ status: 'replayed', eventId }, null, 2));
+    return;
+  }
+  if (parsed.command === 'webhook:bridge') {
+    if (!client) throw new Error('webhook:bridge requires RTDB credentials.');
+    const webhookOptions = {
+      client,
+      config,
+      logger,
+      webhookPath: process.env.WEBHOOK_PATH ?? '/github-noti',
+    };
+    if (parsed.options.once) {
+      const result = await bridgeOnce(webhookOptions);
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    const bridge = bridgePendingEvents(webhookOptions);
+    const shutdown = createShutdownController();
+    await shutdown.wait();
+    bridge.stop();
+    await bridge.idle();
+    shutdown.dispose();
     return;
   }
   if (parsed.command === 'run') {
@@ -182,6 +205,7 @@ function printHelp(): void {
   repo:check [--event-file <file>]
   repo:init [--event-file <file>] [--dry-run]
   run [--once] [--dry-run]
+  webhook:bridge [--once]
   sync --event-file <file> [--dry-run]
   replay --event <eventId>
   config:encode <config.json>

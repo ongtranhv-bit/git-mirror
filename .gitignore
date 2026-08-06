@@ -90,3 +90,8 @@ Thumbs.db
 # ── Git O-Alias helpers ───────────────────────
 .git-o-config
 .opushforce.message
+
+# ── Local deployment (may contain secrets) ───
+DEPLOYMENT_INFO.md
+service-account.json
+config.json
