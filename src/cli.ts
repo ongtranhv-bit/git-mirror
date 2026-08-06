@@ -131,6 +131,8 @@ async function main(): Promise<void> {
       console.log(JSON.stringify(result, null, 2));
       return;
     }
+    const caughtUp = await bridgeOnce(webhookOptions);
+    logger.info({ processed: caughtUp.processed, skipped: caughtUp.skipped }, 'webhook.catchup_done');
     const bridge = bridgePendingEvents(webhookOptions);
     const shutdown = createShutdownController();
     await shutdown.wait();

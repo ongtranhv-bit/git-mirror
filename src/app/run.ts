@@ -65,10 +65,11 @@ export async function runWorker(input: {
 
   await recoverExpiredJobs(input.client, input.config.rtdb);
   await cleanupOldEvents(input.client, input.config.rtdb, input.config.rtdb.retentionDays);
+  const caughtUp = await processAllPending(options);
+  if (caughtUp > 0) input.logger.info({ processed: caughtUp }, 'event.catchup_done');
   if (input.once) {
-    const processed = await processAllPending(options);
     await stopHeartbeat();
-    return { processed, instanceId };
+    return { processed: caughtUp, instanceId };
   }
 
   const listener = listenPendingEvents(options);
@@ -78,11 +79,17 @@ export async function runWorker(input: {
     Math.max(5_000, input.config.runtime.heartbeatSeconds * 1_000),
   );
   reaper.unref();
+  const cleaner = setInterval(
+    () => void cleanupOldEvents(input.client, input.config.rtdb, input.config.rtdb.retentionDays),
+    Math.max(60_000, 6 * 60 * 60 * 1_000),
+  );
+  cleaner.unref();
   await shutdown.wait();
   listener.stop();
   await listener.idle();
   clearInterval(reaper);
+  clearInterval(cleaner);
   await stopHeartbeat();
   shutdown.dispose();
-  return { processed: 0, instanceId };
+  return { processed: caughtUp, instanceId };
 }

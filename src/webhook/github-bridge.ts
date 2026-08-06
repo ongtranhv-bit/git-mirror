@@ -43,6 +43,10 @@ export async function bridgeOnce(options: GithubBridgeOptions): Promise<BridgeRu
     (await options.client.get<Record<string, GithubWebhookDelivery>>(options.webhookPath ?? '/github-noti')) ?? {};
   const result: BridgeRunResult = { processed: 0, skipped: 0 };
   for (const [childKey, payload] of Object.entries(deliveries)) {
+    if (typeof payload === 'object' && payload !== null && (payload as { _bridge?: unknown })._bridge) {
+      await options.client.remove(`${options.webhookPath ?? '/github-noti'}/${childKey}`);
+      continue;
+    }
     await processDelivery(options, childKey, payload, result);
   }
   return result;
@@ -69,33 +73,37 @@ async function processDelivery(
   result: BridgeRunResult,
 ): Promise<void> {
   const log = options.logger.child({ childKey });
+  const childPath = `${options.webhookPath ?? '/github-noti'}/${childKey}`;
   try {
     const event = toHookEvent(payload);
     if (!event) {
-      const claimed = await claimDelivery(options, childKey);
+      const claimed = await claimDelivery(options, childPath);
       if (claimed) {
         result.skipped += 1;
         log.info({}, 'webhook.skipped');
+        await options.client.remove(childPath);
       }
       return;
     }
     const filterMatch = isExcludedCommit(commitMessagesOf(payload), options.config.src.filter);
     if (filterMatch.matched) {
-      const claimed = await claimDelivery(options, childKey);
+      const claimed = await claimDelivery(options, childPath);
       if (claimed) {
         result.skipped += 1;
         log.info(
           { mode: filterMatch.rule?.mode, value: filterMatch.rule?.value, repo: event.repo, after: event.after },
           'webhook.filtered',
         );
+        await options.client.remove(childPath);
       }
       return;
     }
-    const claimed = await claimDelivery(options, childKey, event.eventId);
+    const claimed = await claimDelivery(options, childPath, event.eventId);
     if (!claimed) return;
     await options.client.update({
       [`${options.config.rtdb.pendingPath}/${event.eventId}`]: event,
     });
+    await options.client.remove(childPath);
     result.processed += 1;
     log.info({ eventId: event.eventId, repo: event.repo, ref: event.ref, after: event.after }, 'webhook.event_queued');
   } catch (error) {
@@ -103,12 +111,7 @@ async function processDelivery(
   }
 }
 
-async function claimDelivery(
-  options: GithubBridgeOptions,
-  childKey: string,
-  eventId?: string,
-): Promise<boolean> {
-  const childPath = `${options.webhookPath ?? '/github-noti'}/${childKey}`;
+async function claimDelivery(options: GithubBridgeOptions, childPath: string, eventId?: string): Promise<boolean> {
   const committed = await options.client.transaction<GithubWebhookDelivery>(
     childPath,
     (current) => {

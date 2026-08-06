@@ -69,7 +69,25 @@ node dist/cli.js webhook:bridge --once
 - Node mặc định là `/github-noti`, đổi bằng `WEBHOOK_PATH`.
 - Mỗi delivery được claim bằng RTDB transaction (thêm `_bridge`), tránh xử lý trùng khi nhiều instance.
 - Event ping/branch-delete bị skip và đánh dấu `skipped` trong `_bridge`.
+- Sau khi xử lý (queued/skipped/filtered), delivery bị xóa khỏi `/github-noti` để node không phình ra. Delivery đã claim trước đó cũng bị dọn khi bridge khởi động (`bridgeOnce`).
+- Khi khởi động, bridge chạy `bridgeOnce` để bắt kịp các delivery còn tồn đọng trước khi lắng nghe realtime.
 - Chạy song song với `node dist/cli.js run` để hoàn tất pipeline: webhook → pending → sync.
+
+## Retention dữ liệu cũ
+
+Event đã xử lý/không xử lý quá `rtdb.retentionDays` ngày bị xóa tự động. Worker dọn lúc khởi động và mỗi 6 giờ:
+
+```json
+{ "rtdb": { "retentionDays": 7 } }
+```
+
+Hoặc override bằng env (ưu tiên hơn config):
+
+```bash
+RTDB_RETENTION_DAYS=7
+```
+
+Worker khởi động cũng chạy `processAllPending` để bắt kịp event còn tồn đọng trước khi lắng nghe realtime.
 
 ## Lọc/bỏ qua notification
 
