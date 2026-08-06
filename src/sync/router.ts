@@ -75,6 +75,25 @@ export async function processHookEvent(input: {
 
   for (const [destinationId, destination] of Object.entries(input.config.dest)) {
     const destinationStarted = Date.now();
+    const locator: RepoLocator = {
+      org: render(destination.org, source),
+      repo: render(destination.repo, source),
+      ...(destination.project ? { project: render(destination.project, source) } : {}),
+    };
+    if (isSameRepository(destination.type, locator, source)) {
+      destinations.push({
+        destinationId,
+        provider: destination.type,
+        mode: destination.mode,
+        repo: locator.repo,
+        directory: destination.mode === 'many-to-one' ? resolveDirectory(destination, source) : undefined,
+        sourceSha: source.sha,
+        status: 'skipped',
+        durationMs: Date.now() - destinationStarted,
+        error: { code: 'SELF_LOOP_PREVENTED', message: 'Destination matches the source repository; skipping to avoid an infinite mirror loop.', retryable: false },
+      });
+      continue;
+    }
     try {
       const result = await withRetry(
         () =>
@@ -229,6 +248,10 @@ export async function ensureDestinationRepository(
 export function resolveDirectory(destination: Extract<DestinationConfig, { mode: 'many-to-one' }>, source: SourceRepository): string {
   const mapped = destination.directoryMap[source.fullName] ?? destination.directoryMap[source.repo];
   return validateDestinationDirectory(render(mapped ?? destination.directory, source));
+}
+
+export function isSameRepository(provider: string, locator: RepoLocator, source: SourceRepository): boolean {
+  return provider === source.provider && locator.org === source.owner && locator.repo === source.repo;
 }
 
 export function render(template: string, source: SourceRepository): string {
