@@ -52,7 +52,7 @@ export async function ensureSourceWorkspace(
     });
   } else {
     await runGit(['remote', 'set-url', 'origin', source.url], { cwd: workspace, timeoutMs });
-    await runGit(['remote', 'update', '--prune'], {
+    await runGit(['fetch', '--prune', '--tags', 'origin'], {
       cwd: workspace,
       credential: source.credential,
       timeoutMs,

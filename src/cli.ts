@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { checkRepositories } from './app/check.js';
 import { initRepositories } from './app/init.js';
-import { createInstanceId, runWorker } from './app/run.js';
+import { resolveInstanceId, runWorker } from './app/run.js';
 import { createShutdownController } from './app/shutdown.js';
 import { decodeBase64, encodeConfig, loadConfig } from './config/load.js';
 import { createRtdbClientFromEnv, type RtdbClient } from './rtdb/client.js';
@@ -103,7 +103,7 @@ async function main(): Promise<void> {
     const result = await processHookEvent({
       config,
       hook,
-      instanceId: process.env.INSTANCE_ID ?? createInstanceId(),
+      instanceId: resolveInstanceId(),
       logger,
       rtdb: client,
       dryRun: Boolean(parsed.options['dry-run']),

@@ -18,6 +18,10 @@ export function createInstanceId(): string {
   return `${hostname()}-${process.pid}-${randomBytes(4).toString('hex')}`.replace(/[^A-Za-z0-9_-]/g, '-');
 }
 
+export function resolveInstanceId(provided?: string): string {
+  return provided?.trim() || process.env.INSTANCE_ID?.trim() || createInstanceId();
+}
+
 export async function runWorker(input: {
   config: AppConfig;
   client: RtdbClient;
@@ -26,7 +30,7 @@ export async function runWorker(input: {
   once?: boolean;
   dryRun?: boolean;
 }): Promise<{ processed: number; instanceId: string }> {
-  const instanceId = input.instanceId ?? process.env.INSTANCE_ID ?? createInstanceId();
+  const instanceId = resolveInstanceId(input.instanceId);
   let currentEvent: string | undefined;
   const stopHeartbeat = startHeartbeat(
     input.client,
