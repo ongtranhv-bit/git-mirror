@@ -1,0 +1,14 @@
+services:
+  git-mirror:
+    build: .
+    image: git-mirror-sync-service:0.1.0
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./config.example.json:/app/config/config.json:ro
+      - git-mirror-cache:/app/.cache/repos
+    command: ["run"]
+
+volumes:
+  git-mirror-cache:

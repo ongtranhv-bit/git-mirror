@@ -1,0 +1,10 @@
+.git
+node_modules
+dist
+.cache
+.test-dist
+coverage
+*.log
+.env
+*.zip
+*.tar.gz

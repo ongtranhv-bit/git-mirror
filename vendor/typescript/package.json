@@ -1,0 +1,15 @@
+{
+  "name": "typescript",
+  "version": "5.8.3",
+  "license": "Apache-2.0",
+  "description": "TypeScript is a language for application scale JavaScript development",
+  "main": "./lib/typescript.js",
+  "typings": "./lib/typescript.d.ts",
+  "bin": {
+    "tsc": "./bin/tsc",
+    "tsserver": "./bin/tsserver"
+  },
+  "engines": {
+    "node": ">=14.17"
+  }
+}

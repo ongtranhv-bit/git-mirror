@@ -1,0 +1,15 @@
+{
+  "rules": {
+    "sync": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "events": {
+        "pending": {
+          "$eventId": {
+            ".validate": "newData.hasChildren(['provider','repo','url','ref','after','receivedAt'])"
+          }
+        }
+      }
+    }
+  }
+}

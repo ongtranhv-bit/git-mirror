@@ -1,0 +1,9 @@
+{
+  "eventId": "evt_20260806_001",
+  "provider": "github",
+  "repo": "source-org/app",
+  "url": "https://github.com/source-org/app.git",
+  "ref": "refs/heads/main",
+  "after": "0123456789abcdef0123456789abcdef01234567",
+  "receivedAt": 1786000000000
+}

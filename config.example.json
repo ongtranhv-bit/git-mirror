@@ -1,0 +1,114 @@
+{
+  "configVersion": 6,
+  "src": {
+    "creds": {
+      "github": {
+        "type": "github",
+        "token": "${SOURCE_GITHUB_PAT}"
+      },
+      "gitea": {
+        "type": "gitea",
+        "token": "${SOURCE_GITEA_PAT}"
+      },
+      "azure": {
+        "type": "azure",
+        "token": "${SOURCE_AZURE_PAT}"
+      }
+    }
+  },
+  "dest": {
+    "github-main": {
+      "type": "github",
+      "mode": "one-to-one",
+      "creds": {
+        "type": "github",
+        "token": "${DEST_GITHUB_PAT}"
+      },
+      "org": "mirror-org",
+      "repo": "{sourceRepo}",
+      "autoCreate": {
+        "enabled": true,
+        "private": true
+      },
+      "push": {
+        "force": true,
+        "pushTags": true,
+        "deleteMissingRefs": false,
+        "include": ["refs/heads/*", "refs/tags/*"],
+        "exclude": ["refs/heads/tmp/*"]
+      }
+    },
+    "gitea-monorepo": {
+      "type": "gitea",
+      "mode": "many-to-one",
+      "baseUrl": "https://git.example.com",
+      "creds": {
+        "type": "gitea",
+        "token": "${DEST_GITEA_PAT}"
+      },
+      "org": "mirror-team",
+      "repo": "monorepo",
+      "branch": "main",
+      "directory": "services/{sourceRepo}",
+      "directoryMap": {
+        "source-org/shared-lib": "packages/shared-lib"
+      },
+      "autoCreate": {
+        "enabled": true,
+        "private": true
+      },
+      "commit": {
+        "authorName": "mirror-bot",
+        "authorEmail": "mirror-bot@example.com",
+        "committerName": "mirror-bot",
+        "committerEmail": "mirror-bot@example.com",
+        "messagePrefix": "[sync]",
+        "template": "{{prefix}} {{sourceRepo}}: {{sourceSubject}}",
+        "trailers": {
+          "Source-Repo": "{{sourceOwner}}/{{sourceRepo}}",
+          "Source-Ref": "{{sourceRef}}",
+          "Source-Commit": "{{sourceSha}}",
+          "Source-Directory": "{{sourceDirectory}}",
+          "Synced-At": "{{timestamp}}",
+          "Synced-By": "{{instanceId}}"
+        }
+      }
+    },
+    "azure-main": {
+      "type": "azure",
+      "mode": "one-to-one",
+      "creds": {
+        "type": "azure",
+        "token": "${DEST_AZURE_PAT}"
+      },
+      "org": "acme",
+      "project": "platform",
+      "repo": "{sourceRepo}",
+      "autoCreate": {
+        "enabled": true,
+        "private": true
+      }
+    }
+  },
+  "runtime": {
+    "workdir": "./.cache/repos",
+    "lockTtlSeconds": 900,
+    "heartbeatSeconds": 30,
+    "maxRetries": 3,
+    "retryBackoffMs": 2000,
+    "gitTimeoutMs": 600000,
+    "apiTimeoutMs": 30000,
+    "logLevel": "info"
+  },
+  "rtdb": {
+    "configPath": "/sync/config",
+    "pendingPath": "/sync/events/pending",
+    "processingPath": "/sync/events/processing",
+    "processedPath": "/sync/events/processed",
+    "failedPath": "/sync/events/failed",
+    "statePath": "/sync/state",
+    "locksPath": "/sync/locks",
+    "instancesPath": "/sync/instances",
+    "retentionDays": 14
+  }
+}
