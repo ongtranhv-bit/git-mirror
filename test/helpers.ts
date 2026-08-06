@@ -81,6 +81,7 @@ export function baseConfig(workdir: string, destinations: Record<string, Destina
       heartbeatSeconds: 5,
       maxRetries: 1,
       retryBackoffMs: 10,
+      maxEventRetries: 3,
       gitTimeoutMs: 30_000,
       apiTimeoutMs: 5_000,
       logLevel: 'error',

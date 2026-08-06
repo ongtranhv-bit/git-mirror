@@ -44,6 +44,7 @@ export async function runWorker(input: {
     paths: input.config.rtdb,
     instanceId,
     lockTtlSeconds: input.config.runtime.lockTtlSeconds,
+    maxEventRetries: input.config.runtime.maxEventRetries,
     logger: input.logger,
     handler: async (event: HookEvent) => {
       currentEvent = event.eventId;

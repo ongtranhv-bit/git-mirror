@@ -66,6 +66,7 @@ export interface RuntimeConfig {
   heartbeatSeconds: number;
   maxRetries: number;
   retryBackoffMs: number;
+  maxEventRetries: number;
   gitTimeoutMs: number;
   apiTimeoutMs: number;
   logLevel: 'debug' | 'info' | 'warn' | 'error';

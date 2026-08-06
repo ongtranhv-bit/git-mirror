@@ -1,5 +1,6 @@
 import type { Logger } from '../shared/logger.js';
-import { toPublicError } from '../shared/errors.js';
+import { toAppError, toPublicError } from '../shared/errors.js';
+import { isRetryableError } from '../shared/retry.js';
 import type { HookEvent, SyncEventResult } from '../types.js';
 import type { RtdbClient } from './client.js';
 import { claimEventAtomically, refreshLock } from './locks.js';
@@ -16,8 +17,22 @@ export interface EventProcessorOptions {
   paths: EventPaths;
   instanceId: string;
   lockTtlSeconds: number;
+  maxEventRetries: number;
   logger: Logger;
   handler: (event: HookEvent) => Promise<SyncEventResult>;
+}
+
+function attemptsOf(payload: unknown): number {
+  return typeof payload === 'object' && payload !== null && Number.isFinite((payload as { _retries?: number })._retries)
+    ? (payload as { _retries: number })._retries
+    : 0;
+}
+
+async function requeueEvent(client: RtdbClient, paths: EventPaths, eventId: string, payload: unknown): Promise<void> {
+  await client.update({
+    [`${paths.pendingPath}/${eventId}`]: payload,
+    [`${paths.processingPath}/${eventId}`]: null,
+  });
 }
 
 export async function processPendingEvent(
@@ -48,6 +63,12 @@ export async function processPendingEvent(
     await markProcessed(options.client, options.paths, eventId, result);
     log.info({ durationMs: result.completedAt - result.startedAt }, 'event.processed');
   } catch (error) {
+    const attempts = attemptsOf(payload);
+    if (attempts < options.maxEventRetries && isRetryableError(error)) {
+      await requeueEvent(options.client, options.paths, eventId, { ...payload, _retries: attempts + 1 });
+      log.warn({ attempts: attempts + 1, maxAttempts: options.maxEventRetries }, 'event.retryable_requeued');
+      return true;
+    }
     const aggregateResult = extractAggregateResult(error);
     await markFailed(options.client, options.paths, eventId, payload, error, aggregateResult);
     log.error({ error: toPublicError(error) }, 'event.failed');
