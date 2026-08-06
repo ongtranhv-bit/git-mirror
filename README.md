@@ -138,7 +138,7 @@ Implementation guide đề xuất Zod, firebase-admin, simple-git, pino, p-queue
 - Git LFS, wiki, issue, PR, release và full-history many-to-one ngoài phase này.
 - Provider `custom` có schema credential nhưng chưa có adapter tạo repo.
 - `repo:init` không thể tự liệt kê repo động `{sourceRepo}` vì schema v6 không lưu danh sách source; cần `--event-file`, hoặc listener tự tạo khi nhận hook.
-- RTDB Emulator và Gitea Docker smoke test cần Docker/network bên ngoài môi trường hiện tại; test local Git và in-memory RTDB đã chạy.
+- RTDB Emulator và Gitea Docker smoke test không áp dụng; đã verified GitHub destination live với Docker (3 containers) và node-native. Gitea/Azure destinations unreachable.
 
 ## Tài liệu nguồn
 
