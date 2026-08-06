@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { processPendingEvent, recoverExpiredJobs } from '../../src/rtdb/events.js';
+import { processPendingEvent, recoverExpiredJobs, cleanupOldEvents } from '../../src/rtdb/events.js';
 import { MemoryRtdbClient } from '../../src/rtdb/memory-client.js';
 import { createLogger } from '../../src/shared/logger.js';
 import { AppError } from '../../src/shared/errors.js';
@@ -105,4 +105,17 @@ test('retryable failure exceeds retry budget and moves to failed', async () => {
   assert.equal(claimed, true);
   assert.equal(await client.get(`${paths.pendingPath}/evt-exhausted`), null);
   assert.notEqual(await client.get(`${paths.failedPath}/evt-exhausted`), null);
+});
+
+test('cleanupOldEvents removes processed and failed entries older than retention', async () => {
+  const client = new MemoryRtdbClient();
+  const now = Date.now();
+  await client.set(`${paths.processedPath}/old-ok`, { completedAt: now - 8 * 86_400_000 });
+  await client.set(`${paths.failedPath}/old-fail`, { failedAt: now - 9 * 86_400_000 });
+  await client.set(`${paths.processedPath}/fresh`, { completedAt: now - 1 * 86_400_000 });
+  const removed = await cleanupOldEvents(client, paths, 7, now);
+  assert.equal(removed, 2);
+  assert.equal(await client.get(`${paths.processedPath}/old-ok`), null);
+  assert.equal(await client.get(`${paths.failedPath}/old-fail`), null);
+  assert.notEqual(await client.get(`${paths.processedPath}/fresh`), null);
 });
