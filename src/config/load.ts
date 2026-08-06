@@ -1,9 +1,10 @@
 import { readFile } from 'node:fs/promises';
 import { AppError } from '../shared/errors.js';
-import type { RtdbClient } from '../rtdb/client.js';
 import type { AppConfig } from '../types.js';
+import type { RtdbClient } from '../rtdb/client.js';
 import { interpolateEnvironment } from './resolve-env.js';
 import { parseConfig } from './schema.js';
+import { parseFilterRulesFromEnv } from '../filter.js';
 
 export interface LoadConfigOptions {
   raw?: string;
@@ -71,5 +72,11 @@ function parseRawConfig(source: string, env: NodeJS.ProcessEnv): AppConfig {
   } catch (error) {
     throw new AppError('CONFIG_JSON_INVALID', 'Configuration is not valid JSON.', { cause: error });
   }
-  return parseConfig(interpolateEnvironment(parsed, env));
+  const config = parseConfig(interpolateEnvironment(parsed, env));
+  const envRules = parseFilterRulesFromEnv(env.SRC_FILTER_COMMIT_EXCLUDE);
+  if (envRules.length > 0) {
+    const existing = config.src.filter?.commit?.exclude ?? [];
+    config.src.filter = { commit: { exclude: [...existing, ...envRules] } };
+  }
+  return config;
 }

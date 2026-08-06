@@ -71,6 +71,37 @@ node dist/cli.js webhook:bridge --once
 - Event ping/branch-delete bị skip và đánh dấu `skipped` trong `_bridge`.
 - Chạy song song với `node dist/cli.js run` để hoàn tất pipeline: webhook → pending → sync.
 
+## Lọc/bỏ qua notification
+
+Cấu hình loại trừ push theo commit message, phù hợp khi webhook org gửi mọi repo. Event khớp rule sẽ bị skip ngay tại bridge (không vào `pending`); nếu đã vào `pending`, worker đánh dấu destination là `skipped` với code `COMMIT_FILTERED`.
+
+```json
+{
+  "src": {
+    "creds": { "github": { "type": "github", "token": "${SOURCE_GITHUB_PAT}" } },
+    "filter": {
+      "commit": {
+        "exclude": [
+          { "mode": "prefix", "value": "Debug" },
+          { "mode": "suffix", "value": "[no-sync]" },
+          { "mode": "contains", "value": "skip-me" }
+        ]
+      }
+    }
+  }
+}
+```
+
+Hoặc qua env (gộp với rule trong config):
+
+```bash
+SRC_FILTER_COMMIT_EXCLUDE=prefix:Debug,suffix:[no-sync],contains:skip-me
+```
+
+- `mode`: `prefix` (bắt đầu bằng), `suffix` (kết thúc bằng), `contains` (chứa). Khớp không phân biệt hoa/thường.
+- Bridge kiểm tra message của mọi commit trong push (head_commit lẫn commits[]); chỉ cần 1 commit khớp là skip cả push.
+- Event bị skip được claim delivery để không xử lý lại.
+
 ## Sync thủ công
 
 Dry-run vẫn clone/fetch/check để phát hiện lỗi, nhưng không create repo thật và không push:

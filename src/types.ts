@@ -86,10 +86,28 @@ export interface RtdbPaths {
 
 export interface AppConfig {
   configVersion: number;
-  src: { creds: Record<string, CredentialConfig> };
+  src: SourceConfig;
   dest: Record<string, DestinationConfig>;
   runtime: RuntimeConfig;
   rtdb: RtdbPaths;
+}
+
+export type CommitFilterMode = 'prefix' | 'suffix' | 'contains';
+
+export interface CommitFilterRule {
+  mode: CommitFilterMode;
+  value: string;
+}
+
+export interface SrcFilterConfig {
+  commit?: {
+    exclude?: CommitFilterRule[];
+  };
+}
+
+export interface SourceConfig {
+  creds: Record<string, CredentialConfig>;
+  filter?: SrcFilterConfig;
 }
 
 export interface HookEvent {

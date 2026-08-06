@@ -4,16 +4,19 @@ import { registerSecret } from '../shared/logger.js';
 import type {
   AppConfig,
   CommitConfig,
+  CommitFilterRule,
   CredentialConfig,
   DestinationConfig,
   ProviderType,
   PushPolicy,
   RtdbPaths,
   RuntimeConfig,
+  SrcFilterConfig,
 } from '../types.js';
 
 const PROVIDERS = new Set<ProviderType>(['github', 'gitea', 'azure', 'custom']);
 const MODES = new Set(['one-to-one', 'many-to-one']);
+const FILTER_MODES = new Set(['prefix', 'suffix', 'contains']);
 
 const DEFAULT_RUNTIME: RuntimeConfig = {
   workdir: './.cache/repos',
@@ -72,7 +75,9 @@ export function parseConfig(input: unknown): AppConfig {
   const srcObject = asObject(root.src, '$.src', issues);
   if (srcObject) {
     for (const key of Object.keys(srcObject)) {
-      if (key !== 'creds') issues.push(`$.src.${key}: src only accepts the creds field; source metadata must come from hook data.`);
+      if (key !== 'creds' && key !== 'filter') {
+        issues.push(`$.src.${key}: src only accepts the creds and filter fields; source metadata must come from hook data.`);
+      }
     }
   }
   const credsObject = asObject(srcObject?.creds, '$.src.creds', issues);
@@ -84,6 +89,7 @@ export function parseConfig(input: unknown): AppConfig {
     }
     if (Object.keys(sourceCreds).length === 0) issues.push('$.src.creds: at least one source credential is required.');
   }
+  const sourceFilter = parseSrcFilter(srcObject?.filter, issues);
 
   const destObject = asObject(root.dest, '$.dest', issues);
   const destinations: Record<string, DestinationConfig> = {};
@@ -107,7 +113,7 @@ export function parseConfig(input: unknown): AppConfig {
 
   return {
     configVersion,
-    src: { creds: sourceCreds },
+    src: { creds: sourceCreds, ...(sourceFilter ? { filter: sourceFilter } : {}) },
     dest: destinations,
     runtime,
     rtdb,
@@ -269,8 +275,35 @@ function parseRuntime(value: unknown, issues: string[]): RuntimeConfig {
   };
 }
 
-function parseRtdb(value: unknown, issues: string[]): RtdbPaths {
-  const object = optionalObject(value, '$.rtdb', issues);
+function parseSrcFilter(value: unknown, issues: string[]): SrcFilterConfig | undefined {
+  const object = optionalObject(value, '$.src.filter', issues);
+  if (!object) return undefined;
+  const commitObject = optionalObject(object.commit, '$.src.filter.commit', issues);
+  if (!commitObject) return undefined;
+  const exclude: CommitFilterRule[] = [];
+  if (commitObject.exclude !== undefined) {
+    if (!Array.isArray(commitObject.exclude)) {
+      issues.push('$.src.filter.commit.exclude: expected array.');
+    } else {
+      for (const [index, rule] of commitObject.exclude.entries()) {
+        const ruleObject = asObject(rule, `$.src.filter.commit.exclude[${index}]`, issues);
+        if (!ruleObject) continue;
+        const mode = nonEmptyString(ruleObject.mode, `$.src.filter.commit.exclude[${index}].mode`, issues);
+        const valueText = nonEmptyString(ruleObject.value, `$.src.filter.commit.exclude[${index}].value`, issues);
+        if (mode && !FILTER_MODES.has(mode as CommitFilterRule['mode'])) {
+          issues.push(`$.src.filter.commit.exclude[${index}].mode: expected prefix, suffix, or contains.`);
+        }
+        if (mode && valueText && FILTER_MODES.has(mode as CommitFilterRule['mode'])) {
+          exclude.push({ mode: mode as CommitFilterRule['mode'], value: valueText });
+        }
+      }
+    }
+  }
+  if (exclude.length === 0) return undefined;
+  return { commit: { exclude } };
+}
+
+function parseRtdb(value: unknown, issues: string[]): RtdbPaths {  const object = optionalObject(value, '$.rtdb', issues);
   return {
     configPath: rtdbPath(object?.configPath, '$.rtdb.configPath', issues, DEFAULT_RTDB.configPath),
     pendingPath: rtdbPath(object?.pendingPath, '$.rtdb.pendingPath', issues, DEFAULT_RTDB.pendingPath),

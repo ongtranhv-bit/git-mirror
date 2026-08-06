@@ -9,6 +9,7 @@ import type { ProviderAdapter } from '../providers/provider.js';
 import type { RtdbClient } from '../rtdb/client.js';
 import { acquireDestinationLock, refreshLock, releaseDestinationLock } from '../rtdb/locks.js';
 import { saveRepositoryState, saveSyncState } from '../rtdb/state.js';
+import { commitMessagesOf, isExcludedCommit } from '../filter.js';
 import type {
   AppConfig,
   DestinationConfig,
@@ -69,6 +70,31 @@ export async function processHookEvent(input: {
 }): Promise<SyncEventResult> {
   const startedAt = Date.now();
   const source = resolveSourceFromHook(input.config, input.hook);
+  const filterMatch = isExcludedCommit(commitMessagesOf(input.hook.raw), input.config.src.filter);
+  if (filterMatch.matched) {
+    return {
+      eventId: input.hook.eventId,
+      sourceRepo: source.fullName,
+      sourceSha: source.sha,
+      startedAt,
+      completedAt: Date.now(),
+      instanceId: input.instanceId,
+      destinations: Object.entries(input.config.dest).map(([destinationId, destination]) => ({
+        destinationId,
+        provider: destination.type,
+        mode: destination.mode,
+        repo: render(destination.repo, source),
+        sourceSha: source.sha,
+        status: 'skipped' as const,
+        durationMs: 0,
+        error: {
+          code: 'COMMIT_FILTERED',
+          message: `Commit message excluded by filter (${filterMatch.rule?.mode}: ${filterMatch.rule?.value}); skipping sync.`,
+          retryable: false,
+        },
+      })),
+    };
+  }
   const workdir = resolve(input.config.runtime.workdir, 'instances', input.instanceId);
   const sourceWorkspace = await ensureSourceWorkspace(source, workdir, input.config.runtime.gitTimeoutMs);
   const destinations: DestinationResult[] = [];

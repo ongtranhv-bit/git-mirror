@@ -39,7 +39,31 @@ test('rejects source url/repo fields because hook owns source metadata', () => {
   input.src = { ...(input.src as object), url: 'https://example.com/a.git', repo: 'a' };
   assert.throws(() => parseConfig(input), (error: unknown) => {
     assert.ok(error instanceof ConfigValidationError);
-    assert.match(error.message, /src only accepts the creds field/);
+    assert.match(error.message, /src only accepts the creds and filter fields/);
+    return true;
+  });
+});
+
+test('parses src filter exclude rules and rejects unknown modes', () => {
+  const input = validConfig();
+  (input.src as Record<string, unknown>).filter = {
+    commit: {
+      exclude: [
+        { mode: 'prefix', value: 'Debug' },
+        { mode: 'contains', value: '[skip]' },
+      ],
+    },
+  };
+  const config = parseConfig(input);
+  assert.deepEqual(config.src.filter?.commit?.exclude, [
+    { mode: 'prefix', value: 'Debug' },
+    { mode: 'contains', value: '[skip]' },
+  ]);
+
+  (input.src as Record<string, unknown>).filter = { commit: { exclude: [{ mode: 'regex', value: 'Debug' }] } };
+  assert.throws(() => parseConfig(input), (error: unknown) => {
+    assert.ok(error instanceof ConfigValidationError);
+    assert.match(error.message, /expected prefix, suffix, or contains/);
     return true;
   });
 });
