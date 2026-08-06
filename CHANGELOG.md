@@ -12,6 +12,11 @@
 - Many-to-one exact directory sync, file deletion, commit marker và idempotency.
 - RTDB REST/SSE, ETag transactions, event lifecycle, state, destination locks, heartbeat/reaper.
 - CLI, Docker, docs và local integration tests.
+- Vận hành listener: catch-up `processAllPending` khi khởi động, reaper, retention event cũ theo `RTDB_RETENTION_DAYS` (mặc định 7, dọn lúc start và mỗi 6 giờ).
+- Webhook bridge: xóa delivery `/github-noti` sau khi claim/queued/skipped/filtered và sweep delivery sót lúc khởi động, tránh node phình ra.
+- Lọc push theo commit message (`src.filter.commit.exclude`: `prefix`/`suffix`/`contains`, hoặc env `SRC_FILTER_COMMIT_EXCLUDE`) — skip tại bridge hoặc đánh dấu destination `skipped`/`COMMIT_FILTERED`.
+- Codespace keep-alive tích hợp trong listener (`runtime.codespaceKeepalive` hoặc `CODESPACE_KEEPALIVE_ENABLED`/`CODESPACE_KEEPALIVE_INTERVAL_MINUTES`): ping `gh codespace ssh` định kỳ để reset idle timer; guard `CODESPACES=true` + `CODESPACE_NAME` + `gh` CLI, thiếu điều kiện thì warn + skip, không lỗi.
+- Docker build reproducibility: commit `package-lock.json`, sửa bin vendored `tsc` (`./bin/tsc` → `lib/tsc.js`) và thêm shebang để `npm ci` tạo `.bin` link trong image.
 
 ### Decisions resolving document conflicts
 
@@ -24,5 +29,5 @@
 ### Known limitations
 
 - Hook branch deletion (`after` zero SHA) chưa hỗ trợ many-to-one.
-- RTDB Emulator, local Gitea Docker và provider live smoke test chưa chạy trong sandbox không có Docker/network.
+- RTDB Emulator and provider live smoke tests require Docker/network; currently not tested (live tests completed for GitHub via Docker [bridge+workers] and node-native). Gitea/Azure destinations unreachable in current environment.
 - `custom` provider create/check adapter chưa có.

@@ -25,6 +25,9 @@ Sao chép `.env.example` thành `.env`. Không commit `.env`.
 | `RTDB_AUTH_SECRET` | Fallback | Secret legacy gắn `auth` trong request, không log URL hoàn chỉnh |
 | `INSTANCE_ID` | Không | Mặc định hostname-pid-random |
 | PAT variables | Theo config | Source/destination token tham chiếu `${NAME}` |
+| `RTDB_RETENTION_DAYS` | Không | Retention days cho event cũ (default 7, override `rtdb.retentionDays`) |
+| `CODESPACE_KEEPALIVE_ENABLED` | Không | Bật keepalive Codespace (true/1/yes) |
+| `CODESPACE_KEEPALIVE_INTERVAL_MINUTES` | Không | Interval keepalive (phút, default 10, min 1) |
 
 Tạo base64 service account:
 
