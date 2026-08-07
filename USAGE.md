@@ -16,6 +16,31 @@ node dist/cli.js validate --config-json '{"configVersion":6,"src":{"creds":...},
 
 `CONFIG_JSON` có thể là raw JSON hoặc base64 JSON. Thứ tự ưu tiên là CLI/raw env, file, rồi RTDB config base64.
 
+## Destination enabled/disabled
+
+Mỗi destination có field `enabled` để bật/tắt mà không cần xóa cấu hình:
+
+```json
+{
+  "dest": {
+    "github-main": {
+      "enabled": true,
+      "type": "github",
+      ...
+    },
+    "gitea-backup": {
+      "enabled": false,
+      "type": "gitea",
+      ...
+    }
+  }
+}
+```
+
+- Mặc định: `true` (nếu không khai báo)
+- Khi `false`: destination bị skip, log `DESTINATION_DISABLED`
+- Thay đổi không cần restart - worker tự đọc config mới khi có event
+
 ## repo:check
 
 Read-only: xác thực destination credential và check repository, không tạo/sửa.

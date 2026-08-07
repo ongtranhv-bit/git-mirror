@@ -18,6 +18,7 @@
   },
   "dest": {
     "github-main": {
+      "enabled": true,
       "type": "github",
       "mode": "one-to-one",
       "creds": {
@@ -39,6 +40,7 @@
       }
     },
     "gitea-monorepo": {
+      "enabled": false,
       "type": "gitea",
       "mode": "many-to-one",
       "baseUrl": "https://git.example.com",
@@ -75,6 +77,7 @@
       }
     },
     "azure-main": {
+      "enabled": true,
       "type": "azure",
       "mode": "one-to-one",
       "creds": {

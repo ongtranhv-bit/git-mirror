@@ -101,6 +101,19 @@ export async function processHookEvent(input: {
 
   for (const [destinationId, destination] of Object.entries(input.config.dest)) {
     const destinationStarted = Date.now();
+    if (destination.enabled === false) {
+      destinations.push({
+        destinationId,
+        provider: destination.type,
+        mode: destination.mode,
+        repo: render(destination.repo, source),
+        sourceSha: source.sha,
+        status: 'skipped',
+        durationMs: Date.now() - destinationStarted,
+        error: { code: 'DESTINATION_DISABLED', message: 'Destination is disabled in config.', retryable: false },
+      });
+      continue;
+    }
     const locator: RepoLocator = {
       org: render(destination.org, source),
       repo: render(destination.repo, source),

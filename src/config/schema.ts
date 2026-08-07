@@ -214,6 +214,7 @@ function parseDestination(value: unknown, path: string, issues: string[]): Desti
   };
 
   const base = {
+    enabled: booleanValue(object.enabled, `${path}.enabled`, issues, true),
     type,
     creds,
     org,

@@ -35,6 +35,7 @@ export interface CommitConfig {
 }
 
 export interface DestinationBase {
+  enabled: boolean;
   type: ProviderType;
   mode: SyncMode;
   creds: CredentialConfig;
