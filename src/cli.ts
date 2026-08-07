@@ -103,7 +103,7 @@ async function main(): Promise<void> {
       client,
       config,
       logger,
-      webhookPath: process.env.WEBHOOK_PATH ?? '/github-noti',
+      webhookPath: process.env.WEBHOOK_PATH ?? config.rtdb.webhookPath,
     };
     if (parsed.options.once) {
       const result = await bridgeOnce(webhookOptions);
@@ -128,6 +128,7 @@ async function main(): Promise<void> {
       logger,
       once: Boolean(parsed.options.once),
       dryRun: Boolean(parsed.options['dry-run']),
+      bridge: Boolean(parsed.options.bridge),
     });
     console.log(JSON.stringify(result, null, 2));
     return;
@@ -185,7 +186,7 @@ function printHelp(): void {
   validate --config <file> | --config-json <json>
   repo:check [--event-file <file>]
   repo:init [--event-file <file>] [--dry-run]
-  run [--once] [--dry-run]
+  run [--once] [--dry-run] [--bridge]
   webhook:bridge [--once]
   sync --event-file <file> [--dry-run]
   replay --event <eventId>

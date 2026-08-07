@@ -80,6 +80,7 @@ export interface RuntimeConfig {
 
 export interface RtdbPaths {
   configPath: string;
+  webhookPath: string;
   pendingPath: string;
   processingPath: string;
   processedPath: string;

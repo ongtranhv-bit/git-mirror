@@ -105,14 +105,16 @@ sync --event-file <file> [--dry-run]
 replay --event <eventId>
 config:encode <config.json>
 config:decode <config.b64>
-config:push <config.json>
+config:push <config.json
 webhook:bridge [--once]
+run [--once] [--dry-run] [--bridge]
 codespace:plan | codespace:preflight | codespace:rotate
 codespace:status | codespace:rollback | codespace:cleanup
 codespace:config:encode | codespace:config:push
 ```
 
-`webhook:bridge` đọc delivery webhook GitHub nằm dưới node RTDB (mặc định `/github-noti`, đổi bằng `WEBHOOK_PATH`), chuyển event push sang `/sync/events/pending` để worker xử lý.
+- `run --bridge`: Chạy worker + bridge trong1 process - vừa lắng nghe webhook vừa sync.
+- `webhook:bridge`: Chỉ chạy bridge, đọc delivery webhook từ RTDB (path cấu hình qua `rtdb.webhookPath`, mặc định `/github-noti`), chuyển event push sang `/sync/events/pending`.
 
 Chi tiết trong [`USAGE.md`](USAGE.md), triển khai trong [`DEPLOY.md`](DEPLOY.md), rotation trong [`docs/CODESPACE_ROTATION.md`](docs/CODESPACE_ROTATION.md), xử lý lỗi trong [`ERROR.md`](ERROR.md).
 

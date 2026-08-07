@@ -59,19 +59,43 @@ Node key dưới `/sync/events/pending/{eventId}` là event ID chính thức. Wo
 
 ## GitHub webhook bridge
 
-Khi webhook GitHub trỏ trực tiếp vào RTDB (VD `/github-noti.json`), payload thô nằm thành từng child dưới node đó. Bridge đọc các delivery đó, lọc event `push`, chuyển sang `HookEvent` và ghi vào `/sync/events/pending`:
+Khi webhook GitHub trỏ trực tiếp vào RTDB (VD `/github-noti.json`), payload thô nằm thành từng child dưới node đó. Bridge đọc các delivery đó, lọc event `push`, chuyển sang `HookEvent` và ghi vào `/sync/events/pending`.
+
+### Cấu hình webhook path
+
+Đặt path nhận raw data từ GitHub trong `config.json`:
+
+```json
+{
+  "rtdb": {
+    "webhookPath": "/github-noti"
+  }
+}
+```
+
+Ưu tiên: env `WEBHOOK_PATH` > config `rtdb.webhookPath` > mặc định `/github-noti`.
+
+### Chạy bridge riêng
 
 ```bash
 node dist/cli.js webhook:bridge
 node dist/cli.js webhook:bridge --once
 ```
 
-- Node mặc định là `/github-noti`, đổi bằng `WEBHOOK_PATH`.
+### Chạy bridge + worker trong1 process
+
+```bash
+node dist/cli.js run --bridge
+```
+
+Lệnh này vừa lắng nghe webhook vừa sync - không cần 2 process.
+
+### Tính năng bridge
+
 - Mỗi delivery được claim bằng RTDB transaction (thêm `_bridge`), tránh xử lý trùng khi nhiều instance.
 - Event ping/branch-delete bị skip và đánh dấu `skipped` trong `_bridge`.
-- Sau khi xử lý (queued/skipped/filtered), delivery bị xóa khỏi `/github-noti` để node không phình ra. Delivery đã claim trước đó cũng bị dọn khi bridge khởi động (`bridgeOnce`).
+- Sau khi xử lý (queued/skipped/filtered), delivery bị xóa khỏi webhook path để node không phình ra. Delivery đã claim trước đó cũng bị dọn khi bridge khởi động (`bridgeOnce`).
 - Khi khởi động, bridge chạy `bridgeOnce` để bắt kịp các delivery còn tồn đọng trước khi lắng nghe realtime.
-- Chạy song song với `node dist/cli.js run` để hoàn tất pipeline: webhook → pending → sync.
 
 ## Retention dữ liệu cũ
 

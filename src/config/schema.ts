@@ -36,6 +36,7 @@ const DEFAULT_RUNTIME: RuntimeConfig = {
 
 const DEFAULT_RTDB: RtdbPaths = {
   configPath: '/sync/config',
+  webhookPath: '/github-noti',
   pendingPath: '/sync/events/pending',
   processingPath: '/sync/events/processing',
   processedPath: '/sync/events/processed',
@@ -326,6 +327,7 @@ function parseSrcFilter(value: unknown, issues: string[]): SrcFilterConfig | und
 function parseRtdb(value: unknown, issues: string[]): RtdbPaths {  const object = optionalObject(value, '$.rtdb', issues);
   return {
     configPath: rtdbPath(object?.configPath, '$.rtdb.configPath', issues, DEFAULT_RTDB.configPath),
+    webhookPath: rtdbPath(object?.webhookPath, '$.rtdb.webhookPath', issues, DEFAULT_RTDB.webhookPath),
     pendingPath: rtdbPath(object?.pendingPath, '$.rtdb.pendingPath', issues, DEFAULT_RTDB.pendingPath),
     processingPath: rtdbPath(object?.processingPath, '$.rtdb.processingPath', issues, DEFAULT_RTDB.processingPath),
     processedPath: rtdbPath(object?.processedPath, '$.rtdb.processedPath', issues, DEFAULT_RTDB.processedPath),

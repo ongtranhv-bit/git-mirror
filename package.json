@@ -17,7 +17,7 @@
     "lint": "node scripts/lint.mjs",
     "test": "node scripts/test.mjs",
     "cli": "node scripts/cli.mjs",
-    "start": "node dist/cli.js run",
+    "start": "node dist/cli.js run --bridge",
     "verify": "npm run typecheck && npm run lint && npm test && npm run build && npm run security:scan",
     "security:scan": "node scripts/security-scan.mjs",
     "deploy:config:push-config.code-dh-hospital": "dotenvrtdb -e .env -- node dist/cli.js config:push config.code-dh-hospital.json",

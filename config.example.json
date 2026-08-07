@@ -106,6 +106,7 @@
   },
   "rtdb": {
     "configPath": "/sync/config",
+    "webhookPath": "/github-noti",
     "pendingPath": "/sync/events/pending",
     "processingPath": "/sync/events/processing",
     "processedPath": "/sync/events/processed",

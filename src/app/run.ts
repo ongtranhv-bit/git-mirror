@@ -16,6 +16,7 @@ import { processHookEvent } from '../sync/router.js';
 import { startCodespaceKeepalive } from './keepalive.js';
 import { shouldPublishRuntimeStatus, startRuntimeStatus } from '../codespace/runtime-status.js';
 import { createShutdownController } from './shutdown.js';
+import { bridgeOnce, bridgePendingEvents } from '../webhook/github-bridge.js';
 
 export function createInstanceId(): string {
   return `${hostname()}-${process.pid}-${randomBytes(4).toString('hex')}`.replace(/[^A-Za-z0-9_-]/g, '-');
@@ -32,6 +33,7 @@ export async function runWorker(input: {
   instanceId?: string;
   once?: boolean;
   dryRun?: boolean;
+  bridge?: boolean;
 }): Promise<{ processed: number; instanceId: string }> {
   const instanceId = resolveInstanceId(input.instanceId);
   let currentEvent: string | undefined;
@@ -73,6 +75,7 @@ export async function runWorker(input: {
   };
 
   let listener: ReturnType<typeof listenPendingEvents> | undefined;
+  let bridge: ReturnType<typeof bridgePendingEvents> | undefined;
   let shutdown: ReturnType<typeof createShutdownController> | undefined;
   let keepalive: ReturnType<typeof startCodespaceKeepalive> | undefined;
   let reaper: ReturnType<typeof setInterval> | undefined;
@@ -85,6 +88,18 @@ export async function runWorker(input: {
     if (input.once) return { processed: caughtUp, instanceId };
 
     listener = listenPendingEvents(options);
+    if (input.bridge) {
+      const webhookOptions = {
+        client: input.client,
+        config: input.config,
+        logger: input.logger,
+        webhookPath: process.env.WEBHOOK_PATH ?? input.config.rtdb.webhookPath,
+      };
+      const bridgeCaughtUp = await bridgeOnce(webhookOptions);
+      input.logger.info({ processed: bridgeCaughtUp.processed, skipped: bridgeCaughtUp.skipped }, 'bridge.catchup_done');
+      bridge = bridgePendingEvents(webhookOptions);
+      input.logger.info({}, 'bridge.started');
+    }
     if (runtimeStatus) {
       try { await runtimeStatus.markReady(); } catch (error) { input.logger.warn({ error: toPublicError(error) }, 'codespace.runtime_status_ready_failed'); }
     }
@@ -103,6 +118,10 @@ export async function runWorker(input: {
     await shutdown.wait();
     return { processed: caughtUp, instanceId };
   } finally {
+    bridge?.stop();
+    if (bridge) {
+      try { await bridge.idle(); } catch (error) { input.logger.warn({ error: toPublicError(error) }, 'bridge.shutdown_failed'); }
+    }
     listener?.stop();
     if (listener) {
       try { await listener.idle(); } catch (error) { input.logger.warn({ error: toPublicError(error) }, 'event.listener_shutdown_failed'); }
