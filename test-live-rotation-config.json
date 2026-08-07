@@ -1,0 +1,46 @@
+{
+  "configVersion": 1,
+  "enabled": true,
+  "timezone": "Asia/Ho_Chi_Minh",
+  "startAt": "23:00",
+  "days": {
+    "7": {
+      "enabled": true,
+      "codespaceAccount": {
+        "expectedLogin": "ongtranhv-bit",
+        "tokenEnv": "GH_CODESPACE_TOKEN_DAY_07"
+      }
+    },
+    "8": {
+      "enabled": true,
+      "codespaceAccount": {
+        "expectedLogin": "ongtranhv-bit",
+        "tokenEnv": "GH_CODESPACE_TOKEN_DAY_08"
+      }
+    }
+  },
+  "bootstrap": {
+    "owner": "ongtranhv-bit",
+    "repo": "git-mirror-rotation-a",
+    "branch": "main",
+    "machine": "standardLinux",
+    "devcontainerPath": ".devcontainer/devcontainer.json",
+    "idleTimeoutMinutes": 30,
+    "retentionPeriodDays": 1
+  },
+  "runtime": {
+    "rotationLockTtlSeconds": 900,
+    "healthPollSeconds": 5,
+    "healthTimeoutSeconds": 300,
+    "maxRetries": 2,
+    "retryBackoffMs": 2000,
+    "stabilizationSeconds": 15,
+    "stopOldAfterHealthy": false,
+    "deleteOldAfterStop": false
+  },
+  "testing": {
+    "enabled": true,
+    "useRealCodespace": true,
+    "stopOldAfterHealthy": false
+  }
+}
