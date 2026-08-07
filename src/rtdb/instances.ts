@@ -17,8 +17,8 @@ export function startHeartbeat(
       hostname: process.env.HOSTNAME ?? null,
     });
   };
-  void write('running');
-  const timer = setInterval(() => void write('running'), intervalSeconds * 1_000);
+  void write('running').catch(() => undefined);
+  const timer = setInterval(() => void write('running').catch(() => undefined), intervalSeconds * 1_000);
   timer.unref();
   return async () => {
     clearInterval(timer);

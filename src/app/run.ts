@@ -1,6 +1,7 @@
 import { hostname } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import type { Logger } from '../shared/logger.js';
+import { toPublicError } from '../shared/errors.js';
 import type { AppConfig, HookEvent } from '../types.js';
 import type { RtdbClient } from '../rtdb/client.js';
 import {
@@ -13,6 +14,7 @@ import {
 import { startHeartbeat } from '../rtdb/instances.js';
 import { processHookEvent } from '../sync/router.js';
 import { startCodespaceKeepalive } from './keepalive.js';
+import { shouldPublishRuntimeStatus, startRuntimeStatus } from '../codespace/runtime-status.js';
 import { createShutdownController } from './shutdown.js';
 
 export function createInstanceId(): string {
@@ -33,6 +35,12 @@ export async function runWorker(input: {
 }): Promise<{ processed: number; instanceId: string }> {
   const instanceId = resolveInstanceId(input.instanceId);
   let currentEvent: string | undefined;
+  const runtimeStatus = shouldPublishRuntimeStatus() ? startRuntimeStatus({
+    client: input.client,
+    instanceId,
+    intervalSeconds: input.config.runtime.heartbeatSeconds,
+    currentEvent: () => currentEvent,
+  }) : undefined;
   const stopHeartbeat = startHeartbeat(
     input.client,
     input.config.rtdb.instancesPath,
@@ -64,38 +72,48 @@ export async function runWorker(input: {
     },
   };
 
-  await recoverExpiredJobs(input.client, input.config.rtdb);
-  await cleanupOldEvents(input.client, input.config.rtdb, input.config.rtdb.retentionDays);
-  const caughtUp = await processAllPending(options);
-  if (caughtUp > 0) input.logger.info({ processed: caughtUp }, 'event.catchup_done');
-  if (input.once) {
-    await stopHeartbeat();
-    return { processed: caughtUp, instanceId };
-  }
+  let listener: ReturnType<typeof listenPendingEvents> | undefined;
+  let shutdown: ReturnType<typeof createShutdownController> | undefined;
+  let keepalive: ReturnType<typeof startCodespaceKeepalive> | undefined;
+  let reaper: ReturnType<typeof setInterval> | undefined;
+  let cleaner: ReturnType<typeof setInterval> | undefined;
+  try {
+    await recoverExpiredJobs(input.client, input.config.rtdb);
+    await cleanupOldEvents(input.client, input.config.rtdb, input.config.rtdb.retentionDays);
+    const caughtUp = await processAllPending(options);
+    if (caughtUp > 0) input.logger.info({ processed: caughtUp }, 'event.catchup_done');
+    if (input.once) return { processed: caughtUp, instanceId };
 
-  const listener = listenPendingEvents(options);
-  const shutdown = createShutdownController();
-  const stopKeepalive = startCodespaceKeepalive({
-    config: input.config.runtime.codespaceKeepalive,
-    logger: input.logger,
-  });
-  const reaper = setInterval(
-    () => void recoverExpiredJobs(input.client, input.config.rtdb),
-    Math.max(5_000, input.config.runtime.heartbeatSeconds * 1_000),
-  );
-  reaper.unref();
-  const cleaner = setInterval(
-    () => void cleanupOldEvents(input.client, input.config.rtdb, input.config.rtdb.retentionDays),
-    Math.max(60_000, 6 * 60 * 60 * 1_000),
-  );
-  cleaner.unref();
-  await shutdown.wait();
-  listener.stop();
-  await listener.idle();
-  clearInterval(reaper);
-  clearInterval(cleaner);
-  stopKeepalive.stop();
-  await stopHeartbeat();
-  shutdown.dispose();
-  return { processed: caughtUp, instanceId };
+    listener = listenPendingEvents(options);
+    if (runtimeStatus) {
+      try { await runtimeStatus.markReady(); } catch (error) { input.logger.warn({ error: toPublicError(error) }, 'codespace.runtime_status_ready_failed'); }
+    }
+    shutdown = createShutdownController();
+    keepalive = startCodespaceKeepalive({ config: input.config.runtime.codespaceKeepalive, logger: input.logger });
+    reaper = setInterval(
+      () => void recoverExpiredJobs(input.client, input.config.rtdb),
+      Math.max(5_000, input.config.runtime.heartbeatSeconds * 1_000),
+    );
+    reaper.unref();
+    cleaner = setInterval(
+      () => void cleanupOldEvents(input.client, input.config.rtdb, input.config.rtdb.retentionDays),
+      Math.max(60_000, 6 * 60 * 60 * 1_000),
+    );
+    cleaner.unref();
+    await shutdown.wait();
+    return { processed: caughtUp, instanceId };
+  } finally {
+    listener?.stop();
+    if (listener) {
+      try { await listener.idle(); } catch (error) { input.logger.warn({ error: toPublicError(error) }, 'event.listener_shutdown_failed'); }
+    }
+    if (reaper) clearInterval(reaper);
+    if (cleaner) clearInterval(cleaner);
+    keepalive?.stop();
+    if (runtimeStatus) {
+      try { await runtimeStatus.stop(); } catch (error) { input.logger.warn({ error: toPublicError(error) }, 'codespace.runtime_status_stop_failed'); }
+    }
+    try { await stopHeartbeat(); } catch (error) { input.logger.warn({ error: toPublicError(error) }, 'instance.heartbeat_stop_failed'); }
+    shutdown?.dispose();
+  }
 }

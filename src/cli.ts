@@ -13,39 +13,18 @@ import { createLogger } from './shared/logger.js';
 import { processHookEvent } from './sync/router.js';
 import { bridgeOnce, bridgePendingEvents } from './webhook/github-bridge.js';
 import type { AppConfig, HookEvent } from './types.js';
-
-interface ParsedArgs {
-  command: string;
-  positionals: string[];
-  options: Record<string, string | boolean>;
-}
-
-export function parseCliArgs(argv: string[]): ParsedArgs {
-  const command = argv[0] ?? 'help';
-  const positionals: string[] = [];
-  const options: Record<string, string | boolean> = {};
-  for (let index = 1; index < argv.length; index += 1) {
-    const value = argv[index];
-    if (!value) continue;
-    if (!value.startsWith('--')) {
-      positionals.push(value);
-      continue;
-    }
-    const [rawKey, inline] = value.slice(2).split('=', 2);
-    if (!rawKey) continue;
-    if (inline !== undefined) options[rawKey] = inline;
-    else if (argv[index + 1] && !argv[index + 1]?.startsWith('--')) {
-      options[rawKey] = argv[index + 1] ?? '';
-      index += 1;
-    } else options[rawKey] = true;
-  }
-  return { command, positionals, options };
-}
+import { handleCodespaceCommand, isCodespaceCommand } from './codespace/cli.js';
+import { isHelpRequest, parseCliArgs, type ParsedArgs } from './cli-args.js';
 
 async function main(): Promise<void> {
   const parsed = parseCliArgs(process.argv.slice(2));
-  if (parsed.command === 'help' || parsed.options.help) {
+  if (isHelpRequest(parsed)) {
     printHelp();
+    return;
+  }
+
+  if (isCodespaceCommand(parsed.command)) {
+    await handleCodespaceCommand(parsed);
     return;
   }
 
@@ -213,6 +192,14 @@ function printHelp(): void {
   config:encode <config.json>
   config:decode <config.b64>
   config:push <config.json>
+  codespace:plan --rotation-config <file> [--date YYYY-MM-DD]
+  codespace:preflight --rotation-config <file> [--date YYYY-MM-DD]
+  codespace:rotate [--date YYYY-MM-DD] [--fake] [--no-stop-old]
+  codespace:status [--date YYYY-MM-DD]
+  codespace:rollback --rotation YYYY-MM-DD
+  codespace:cleanup --rotation YYYY-MM-DD
+  codespace:config:encode <rotation.json>
+  codespace:config:push <rotation.json>
 
 Config precedence: --config-json/CONFIG_JSON, --config/CONFIG_FILE, RTDB base64 config.`);
 }

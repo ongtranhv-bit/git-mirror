@@ -1,0 +1,6 @@
+{
+  "name": "git-mirror-runner",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm",
+  "postCreateCommand": "npm ci --ignore-scripts && npm run build",
+  "postStartCommand": "nohup bash scripts/codespace-start.sh > /tmp/git-mirror.log 2>&1 &"
+}

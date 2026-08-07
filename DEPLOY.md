@@ -64,10 +64,10 @@ node dist/cli.js run --once
 Docker image tự chạy `npm ci` và build TypeScript trong build stage. Compiler TypeScript được vendored dưới `vendor/typescript`, nên bước build không phụ thuộc npm registry:
 
 ```bash
-docker build -t git-mirror-sync-service:0.1.0 .
+docker build -t git-mirror-sync-service:0.2.0 .
 docker run --rm --env-file .env \
   -v git-mirror-cache:/app/.cache/repos \
-  git-mirror-sync-service:0.1.0 run
+  git-mirror-sync-service:0.2.0 run
 ```
 
 Hoặc:
@@ -117,3 +117,30 @@ Các path cần backup:
 5. Thu hồi credential cũ sau khi xác nhận worker mới heartbeat và sync thành công.
 
 Token không được đưa vào Git remote URL, Docker layer, log, artifact hoặc support bundle.
+
+
+## 9. Codespace Rotation
+
+Rotation là control plane riêng, không thay `/sync/config` của AppConfig v6. Provision bootstrap repository + branch + `.devcontainer` trước, sau đó nạp `codespace-rotation.example.json` vào `/sync/codespace/config`:
+
+```bash
+node dist/cli.js codespace:preflight --rotation-config ./codespace-rotation.example.json --date 2026-08-07
+node dist/cli.js codespace:config:push ./codespace-rotation.example.json
+```
+
+GitHub Actions cần các secrets: `RTDB_URL`, một trong `GOOGLE_SERVICE_ACCOUNT_B64`/`RTDB_AUTH_SECRET`, và `CODESPACE_LIFECYCLE_TOKENS_B64`. JSON bên trong secret lifecycle map dùng **tên profile** trong config làm key; không ghi token vào RTDB.
+
+Codespaces adapter mặc định dùng REST API `2026-03-10` (`GH_CODESPACE_API_VERSION` có thể override). Với fine-grained token, cấp quyền Codespaces/lifecycle write cần thiết trên bootstrap repository; `codespace:preflight` sẽ xác minh identity, HEAD và machine trước khi create. API delete là bất đồng bộ (`202 Accepted`), nên không dùng việc request delete thành công làm bằng chứng Codespace đã biến mất.
+
+Codespace runtime cần RTDB credential và token source theo ngày (`GH_SOURCE_TOKEN_DAY_XX`) được provision bằng Codespaces secrets. `scripts/codespace-runtime-env.sh` thu gọn chúng thành `GH_SOURCE_TOKEN_CURRENT` trước khi chạy worker. Giữ `CODESPACE_ROTATION_TIMEZONE` giống `timezone` trong rotation config. Nếu đổi `startAt`/timezone khỏi 23:00 Asia/Ho_Chi_Minh, cập nhật cron trong workflow tương ứng.
+
+Canary đầu tiên:
+
+```bash
+node dist/cli.js codespace:rotate --no-stop-old
+node dist/cli.js codespace:status
+```
+
+Chỉ bỏ `--no-stop-old` sau khi new Codespace đã nhiều lần đạt readiness/SHA đúng. Mặc định giữ `deleteOldAfterStop=false` để rollback còn khả dụng. Workflow mẫu: `.github/workflows/codespace-rotation.yml`. Chi tiết state/recovery: `docs/CODESPACE_ROTATION.md`.
+
+**Không coi artifact local này là proof cho live Codespaces API.** Cần canary với credential thật để xác minh scope account, machine policy và Codespaces secret injection.

@@ -74,3 +74,19 @@ Logger redact:
 - Field key token/secret/authorization/credential/password/raw.
 
 Dù có redaction, không bật shell trace (`set -x`) quanh lệnh export secret và không chụp toàn bộ environment vào artifact.
+
+
+## Codespace Rotation errors
+
+| Mã | Ý nghĩa | Hành động |
+| --- | --- | --- |
+| `CODESPACE_ROTATION_LOCKED` | Orchestrator khác giữ global lease | Không phá lock còn heartbeat; retry sau |
+| `CODESPACE_TOKEN_IDENTITY_MISMATCH` | Token lifecycle thuộc login khác config | Sửa credential/profile; không create |
+| `CODESPACE_MACHINE_UNAVAILABLE` | Machine cấu hình không khả dụng cho repo | Chạy `codespace:preflight`, chọn machine hợp lệ |
+| `CODESPACE_CONFIG_CHANGED_DURING_ROTATION` | Config hash đổi khi rotation chưa terminal | Khôi phục snapshot cũ hoặc xử lý record trước |
+| `CODESPACE_RECOVERY_AMBIGUOUS` | Có >1 Codespace cùng deterministic display name | Kiểm tra thủ công, stop/rename orphan trước retry |
+| `CODESPACE_AVAILABLE_TIMEOUT` | Codespace không thành `Available` đúng hạn | Giữ old active; kiểm tra Codespaces provisioning |
+| `CODESPACE_RUNTIME_READY_TIMEOUT` | Worker không publish readiness/SHA đúng | Kiểm tra Codespaces secrets, startup log, RTDB |
+| `CODESPACE_TEST_REAL_CREATE_BLOCKED` | Test config cấm API thật | Dùng `--fake` hoặc bật `useRealCodespace` có chủ ý |
+
+Nếu record là `cleanup_pending`, workflow/CLI trả non-zero để dễ alert; chạy `codespace:cleanup --rotation YYYY-MM-DD`. Manual cleanup chỉ stop orphan/old target, không delete. Nếu `rollback_pending`, xác minh old Codespace/credential rồi chạy `codespace:rollback --rotation YYYY-MM-DD`. Không xóa old Codespace khi chưa chứng minh rollback live.

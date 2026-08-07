@@ -24,6 +24,8 @@ transaction claim ──> /processing/{eventId}
 
 Mỗi process xử lý tuần tự. Nhiều instance dùng RTDB transaction để claim event và lock theo destination repository. Cache được tách theo `instanceId`, nên không có hai process cùng sửa một Git worktree.
 
+Codespace Rotation 0.2.0 là control plane độc lập: GitHub Actions/operator tạo Codespace kế nhiệm, chờ worker publish readiness + đúng runtime commit SHA vào RTDB, transaction promote `/sync/codespace/active`, rồi mới stop Codespace cũ. Rotation dùng global lease `/sync/codespace/lock` và config riêng `/sync/codespace/config`; xem [`docs/CODESPACE_ROTATION.md`](docs/CODESPACE_ROTATION.md).
+
 ## Schema v6
 
 `src` **chỉ chứa source credentials**. URL, provider, repo, ref và SHA của source lấy từ hook event. Mỗi entry trong `dest` tự chứa credential riêng:
@@ -105,11 +107,14 @@ config:encode <config.json>
 config:decode <config.b64>
 config:push <config.json>
 webhook:bridge [--once]
+codespace:plan | codespace:preflight | codespace:rotate
+codespace:status | codespace:rollback | codespace:cleanup
+codespace:config:encode | codespace:config:push
 ```
 
 `webhook:bridge` đọc delivery webhook GitHub nằm dưới node RTDB (mặc định `/github-noti`, đổi bằng `WEBHOOK_PATH`), chuyển event push sang `/sync/events/pending` để worker xử lý.
 
-Chi tiết trong [`USAGE.md`](USAGE.md), triển khai trong [`DEPLOY.md`](DEPLOY.md), xử lý lỗi trong [`ERROR.md`](ERROR.md).
+Chi tiết trong [`USAGE.md`](USAGE.md), triển khai trong [`DEPLOY.md`](DEPLOY.md), rotation trong [`docs/CODESPACE_ROTATION.md`](docs/CODESPACE_ROTATION.md), xử lý lỗi trong [`ERROR.md`](ERROR.md).
 
 ## Bảo mật
 
@@ -139,6 +144,7 @@ Implementation guide đề xuất Zod, firebase-admin, simple-git, pino, p-queue
 - Provider `custom` có schema credential nhưng chưa có adapter tạo repo.
 - `repo:init` không thể tự liệt kê repo động `{sourceRepo}` vì schema v6 không lưu danh sách source; cần `--event-file`, hoặc listener tự tạo khi nhận hook.
 - RTDB Emulator và Gitea Docker smoke test không áp dụng; đã verified GitHub destination live với Docker (3 containers) và node-native. Gitea/Azure destinations unreachable.
+- Codespace Rotation đã local/unit verified nhưng chưa live-verify Codespaces API, multi-account ownership, Codespaces secret policy hoặc scheduled GitHub Actions bằng credential thật.
 
 ## Tài liệu nguồn
 

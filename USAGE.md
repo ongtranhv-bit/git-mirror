@@ -193,3 +193,42 @@ node dist/cli.js config:push config.example.json
 ```
 
 Path absolute, `..`, `.git`, path trùng hoặc lồng nhau bị reject trước khi chạy.
+
+
+## Codespace Rotation
+
+Plan/preflight không thay active pointer:
+
+```bash
+node dist/cli.js codespace:plan --rotation-config ./codespace-rotation.example.json --date 2026-08-07
+node dist/cli.js codespace:preflight --rotation-config ./codespace-rotation.example.json --date 2026-08-07
+```
+
+Nạp config control-plane:
+
+```bash
+node dist/cli.js codespace:config:encode ./codespace-rotation.example.json
+node dist/cli.js codespace:config:push ./codespace-rotation.example.json
+```
+
+Fake mode dùng cho orchestration test và bị chặn gọi API thật khi `testing.useRealCodespace=false`:
+
+```bash
+node dist/cli.js codespace:rotate --fake --rotation-config ./codespace-rotation.example.json --date 2026-08-07
+```
+
+Canary thật nên giữ old Codespace:
+
+```bash
+node dist/cli.js codespace:rotate --no-stop-old --date 2026-08-07
+node dist/cli.js codespace:status --date 2026-08-07
+```
+
+Recovery thủ công:
+
+```bash
+node dist/cli.js codespace:rollback --rotation 2026-08-07
+node dist/cli.js codespace:cleanup --rotation 2026-08-07
+```
+
+Các node chính: `/sync/codespace/lock`, `/sync/codespace/active`, `/sync/codespace/rotations/{YYYY-MM-DD}`, `/sync/codespace/instances/{instanceId}`. Xem `docs/CODESPACE_ROTATION.md`.

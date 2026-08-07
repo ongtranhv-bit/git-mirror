@@ -1,7 +1,7 @@
 # Handover Checklist — Implementation Evidence
 
-Ngày kiểm tra: **2026-08-06**  
-Version: **0.1.0**  
+Ngày kiểm tra: **2026-08-07**  
+Version: **0.2.0**  
 Trạng thái tổng thể: **IMPLEMENTED WITH EXTERNAL-SERVICE BLOCKERS**
 
 Quy ước:
@@ -119,14 +119,31 @@ Quy ước:
 npm ci                              PASS
 npm run typecheck                   PASS
 npm run lint                        PASS
-npm test                            PASS — 25/25
-npm test -- --coverage              PASS — lines 75.41%, branches 68.63%, funcs 79.13%
+npm test                            PASS — 68/68
+npm test -- --coverage              PASS — lines 85.15%, branches 71.79%, funcs 86.12%
 npm run build                       PASS
 npm run security:scan               PASS
 CLI validate config.example.json    PASS
 ```
 
-Coverage threshold công bố cho phase 1: **>=70% line**, hiện đạt **75.41%**.
+Coverage threshold công bố: **>=70% line**, hiện đạt **85.15%**.
+
+## 10A. Codespace Rotation 0.2.0
+
+| Mục | Trạng thái | Evidence |
+| --- | --- | --- |
+| Config riêng khỏi AppConfig v6 | DONE | `src/codespace/config.ts`, `/sync/codespace/config` |
+| Global lock/lease | DONE | `src/codespace/lock.ts`; test cross-day lock |
+| Lifecycle token identity | DONE | `credentials.ts`, `github-lifecycle.ts` |
+| Machine + HEAD preflight | DONE | `codespace:preflight` |
+| Crash-safe deterministic recovery | DONE | `rotation.ts`; recovery test |
+| Runtime readiness after listener attach | DONE | `runtime-status.ts`, `app/run.ts` |
+| Promote exact SHA + fresh heartbeat | DONE | `readiness.ts`, rotation tests |
+| Post-promote rollback | DONE | rollback test |
+| Manual rollback/cleanup | DONE | CLI commands + cleanup test |
+| Runtime daily-token narrowing | DONE | `scripts/codespace-runtime-env.sh`; tests |
+| GitHub Actions fixed concurrency | DONE | `.github/workflows/codespace-rotation.yml` |
+| Real Codespaces API/multi-account canary | BLOCKED | Cần credential/quota/policy thật |
 
 ## 11. Blockers và deferred
 

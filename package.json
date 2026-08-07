@@ -1,6 +1,6 @@
 {
   "name": "git-mirror-sync-service",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "RTDB-driven Git mirror service supporting one-to-one and many-to-one sync.",
   "type": "module",
   "private": true,

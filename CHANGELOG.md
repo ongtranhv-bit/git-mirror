@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.2.0 - 2026-08-07
+
+### Codespace Rotation
+
+- Thêm external Codespace orchestrator; không phụ thuộc Codespace hiện tại để tạo người kế nhiệm.
+- Rotation config schema riêng tại `/sync/codespace/config`; AppConfig v6 giữ nguyên tại `/sync/config`.
+- Global RTDB lock/lease, config snapshot hash, durable state machine, deterministic crash recovery bằng display name.
+- Tách lifecycle credential khỏi runtime source credential; identity `/user` phải khớp `expectedLogin`; hỗ trợ multi-account credential profile và base64 credential map cho scheduler.
+- GitHub Codespaces lifecycle adapter native `fetch`: resolve HEAD, list machines, paginated list, create/get/start/stop/delete.
+- Codespaces API contract aligned to `2026-03-10`: create `201/202`, start/stop `200`, delete `202 Accepted`; async delete is recorded as `deleteRequested` rather than falsely `deleted`.
+- Validate Codespace retention at 1..30 days before converting to API minutes.
+- Runtime readiness chỉ `ready` sau catch-up + listener attach; promote yêu cầu exact runtime commit SHA và fresh heartbeat.
+- Transaction promote active pointer; rollback thật sau post-promote failure; manual rollback/cleanup commands.
+- Runtime day-token narrowing: chỉ giữ `GH_SOURCE_TOKEN_CURRENT`, unset toàn bộ `GH_SOURCE_TOKEN_DAY_XX` trước Node child.
+- Devcontainer startup + GitHub Actions scheduler fixed concurrency; manual dispatch mặc định canary `no_stop_old`.
+- 5 vòng implement/review được ghi tại `CodespaceRotationReview-5Rounds.md`.
+- Local verification: 68/68 tests; coverage lines 85.15%, branches 71.79%, functions 86.12%; typecheck/lint/build/security scan PASS.
+
+### Not live-verified
+
+- Real GitHub Codespaces lifecycle, multi-account scopes/ownership, Codespaces secret policy và scheduled Actions vẫn cần canary với credential thật.
+
 ## 0.1.0 - 2026-08-06
 
 ### Implemented

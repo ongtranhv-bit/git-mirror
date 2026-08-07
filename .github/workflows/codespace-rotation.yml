@@ -1,0 +1,51 @@
+name: Codespace Rotation
+
+on:
+  schedule:
+    # 23:00 Asia/Ho_Chi_Minh = 16:00 UTC. The CLI still resolves the day using
+    # the timezone in rotation config and is idempotent by rotationKey.
+    - cron: '0 16 * * *'
+  workflow_dispatch:
+    inputs:
+      no_stop_old:
+        description: 'Canary: promote new Codespace but do not stop the old one'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: git-mirror-codespace-rotation-production
+  cancel-in-progress: false
+
+jobs:
+  rotate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RTDB_URL: ${{ secrets.RTDB_URL }}
+      GOOGLE_SERVICE_ACCOUNT_B64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_B64 }}
+      RTDB_AUTH_SECRET: ${{ secrets.RTDB_AUTH_SECRET }}
+      CODESPACE_LIFECYCLE_TOKENS_B64: ${{ secrets.CODESPACE_LIFECYCLE_TOKENS_B64 }}
+      CODESPACE_ROTATION_CONFIG_PATH: /sync/codespace/config
+      CODESPACE_ROTATION_BASE_PATH: /sync/codespace
+      NODE_ENV: production
+      LOG_LEVEL: info
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - name: Rotate Codespace
+        shell: bash
+        run: |
+          args=()
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.no_stop_old }}" == "true" ]]; then
+            args+=(--no-stop-old)
+          fi
+          node dist/cli.js codespace:rotate "${args[@]}"
