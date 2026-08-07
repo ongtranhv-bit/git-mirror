@@ -1,8 +1,10 @@
+.secrets
 node_modules/
 dist/
 .test-dist/
 .cache/
 .env
+deploy-cli/.env
 coverage/
 *.log
 .DS_Store
@@ -94,3 +96,4 @@ Thumbs.db
 DEPLOYMENT_INFO.md
 service-account.json
 config.json
+config.code-dh-hospital.json
