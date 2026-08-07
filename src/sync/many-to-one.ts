@@ -2,7 +2,7 @@ import { syncDirectory } from '../git/directory-sync.js';
 import {
   createDetachedWorktree,
   ensureDestinationWorkspace,
-  getCommitSubject,
+  getCommitInfo,
 } from '../git/workspace.js';
 import type {
   DestinationResult,
@@ -31,14 +31,14 @@ export async function syncManyToOne(input: {
     input.workdir,
     input.timeoutMs,
   );
-  const sourceSubject = await getCommitSubject(input.sourceWorkspace, input.source.sha, input.timeoutMs);
+  const commitInfo = await getCommitInfo(input.sourceWorkspace, input.source.sha, input.timeoutMs);
   const worktree = await createDetachedWorktree(input.sourceWorkspace, input.source.sha, input.workdir, input.timeoutMs);
   try {
     const output = await syncDirectory({
       destinationWorkspace,
       sourceWorktree: worktree.path,
       source: input.source,
-      sourceSubject,
+      commitInfo,
       directory: input.directory,
       branch: input.destination.branch,
       credential: input.destination.creds,

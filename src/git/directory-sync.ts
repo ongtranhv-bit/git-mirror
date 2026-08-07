@@ -3,12 +3,13 @@ import { basename } from 'node:path';
 import type { CommitConfig, CredentialConfig, SourceRepository } from '../types.js';
 import { resolveInside } from '../shared/paths.js';
 import { getHeadSha, runGit } from './workspace.js';
+import type { CommitInfo } from './workspace.js';
 
 export interface DirectorySyncInput {
   destinationWorkspace: string;
   sourceWorktree: string;
   source: SourceRepository;
-  sourceSubject: string;
+  commitInfo: CommitInfo;
   directory: string;
   branch: string;
   credential: CredentialConfig;
@@ -58,7 +59,7 @@ export async function syncDirectory(input: DirectorySyncInput): Promise<Director
   const message = buildSyncCommitMessage({
     commit: input.commit,
     source: input.source,
-    sourceSubject: input.sourceSubject,
+    commitInfo: input.commitInfo,
     sourceDirectory: input.directory,
     instanceId: input.instanceId,
     timestamp: new Date().toISOString(),
@@ -68,12 +69,30 @@ export async function syncDirectory(input: DirectorySyncInput): Promise<Director
     return { status: 'dry-run', message };
   }
 
+  const commitValues: Record<string, string> = {
+    sourceOwner: input.source.owner,
+    sourceRepo: input.source.repo,
+    sourceBranch: input.source.ref.replace(/^refs\/heads\//, ''),
+    sourceSha: input.commitInfo.sha,
+    sourceShortSha: input.commitInfo.shortSha,
+    sourceSubject: input.commitInfo.subject,
+    sourceBody: input.commitInfo.body,
+    sourceAuthor: input.commitInfo.authorName,
+    sourceAuthorEmail: input.commitInfo.authorEmail,
+    sourceAuthorDate: input.commitInfo.authorDate,
+    sourceCommitter: input.commitInfo.committerName,
+    sourceCommitterEmail: input.commitInfo.committerEmail,
+    sourceCommitterDate: input.commitInfo.committerDate,
+    sourceDirectory: input.directory,
+    instanceId: input.instanceId,
+    timestamp: new Date().toISOString(),
+  };
   const commitEnv = {
     ...process.env,
-    GIT_AUTHOR_NAME: input.commit.authorName,
-    GIT_AUTHOR_EMAIL: input.commit.authorEmail,
-    GIT_COMMITTER_NAME: input.commit.committerName,
-    GIT_COMMITTER_EMAIL: input.commit.committerEmail,
+    GIT_AUTHOR_NAME: renderTemplate(input.commit.authorName, commitValues),
+    GIT_AUTHOR_EMAIL: renderTemplate(input.commit.authorEmail, commitValues),
+    GIT_COMMITTER_NAME: renderTemplate(input.commit.committerName, commitValues),
+    GIT_COMMITTER_EMAIL: renderTemplate(input.commit.committerEmail, commitValues),
   };
   await runGit(['commit', '--file=-'], {
     cwd: input.destinationWorkspace,
@@ -115,7 +134,7 @@ export async function hasSourceCommitMarker(
 export function buildSyncCommitMessage(input: {
   commit: CommitConfig;
   source: SourceRepository;
-  sourceSubject: string;
+  commitInfo: CommitInfo;
   sourceDirectory: string;
   instanceId: string;
   timestamp: string;
@@ -126,10 +145,16 @@ export function buildSyncCommitMessage(input: {
     sourceRepo: input.source.repo,
     sourceRef: input.source.ref,
     sourceBranch: input.source.ref.replace(/^refs\/heads\//, ''),
-    sourceSha: input.source.sha,
-    sourceShortSha: input.source.sha.slice(0, 12),
-    sourceSubject: input.sourceSubject,
-    sourceAuthor: input.commit.authorName,
+    sourceSha: input.commitInfo.sha,
+    sourceShortSha: input.commitInfo.shortSha,
+    sourceSubject: input.commitInfo.subject,
+    sourceBody: input.commitInfo.body,
+    sourceAuthor: input.commitInfo.authorName,
+    sourceAuthorEmail: input.commitInfo.authorEmail,
+    sourceAuthorDate: input.commitInfo.authorDate,
+    sourceCommitter: input.commitInfo.committerName,
+    sourceCommitterEmail: input.commitInfo.committerEmail,
+    sourceCommitterDate: input.commitInfo.committerDate,
     sourceDirectory: input.sourceDirectory,
     timestamp: input.timestamp,
     instanceId: input.instanceId,

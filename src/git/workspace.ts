@@ -191,8 +191,67 @@ export async function createDetachedWorktree(
 }
 
 export async function getCommitSubject(workspace: string, sha: string, timeoutMs: number): Promise<string> {
-  const result = await runGit(['show', '-s', '--format=%s', sha], { cwd: workspace, timeoutMs });
-  return result.stdout.trim() || sha.slice(0, 12);
+  const info = await getCommitInfo(workspace, sha, timeoutMs);
+  return info.subject;
+}
+
+export interface CommitInfo {
+  subject: string;
+  body: string;
+  authorName: string;
+  authorEmail: string;
+  authorDate: string;
+  committerName: string;
+  committerEmail: string;
+  committerDate: string;
+  sha: string;
+  shortSha: string;
+}
+
+export async function getCommitInfo(
+  workspace: string,
+  sha: string,
+  timeoutMs: number,
+): Promise<CommitInfo> {
+  const format = JSON.stringify({
+    subject: '%s',
+    body: '%b',
+    authorName: '%an',
+    authorEmail: '%ae',
+    authorDate: '%ai',
+    committerName: '%cn',
+    committerEmail: '%ce',
+    committerDate: '%ci',
+  });
+  const result = await runGit(['show', '-s', `--format=${format}`, sha], { cwd: workspace, timeoutMs });
+  try {
+    const info = JSON.parse(result.stdout.trim());
+    return {
+      subject: info.subject || sha.slice(0, 12),
+      body: (info.body || '').trim(),
+      authorName: info.authorName || 'unknown',
+      authorEmail: info.authorEmail || 'unknown@unknown',
+      authorDate: info.authorDate || new Date().toISOString(),
+      committerName: info.committerName || 'unknown',
+      committerEmail: info.committerEmail || 'unknown@unknown',
+      committerDate: info.committerDate || new Date().toISOString(),
+      sha,
+      shortSha: sha.slice(0, 12),
+    };
+  } catch {
+    return {
+      subject: sha.slice(0, 12),
+      body: '',
+      authorName: 'unknown',
+      authorEmail: 'unknown@unknown',
+      authorDate: new Date().toISOString(),
+      committerName: 'unknown',
+      committerEmail: 'unknown@unknown',
+      committerDate: new Date().toISOString(),
+      sha,
+      shortSha: sha.slice(0, 12),
+    };
+  }
 }
 
 export async function getHeadSha(workspace: string, timeoutMs: number): Promise<string> {

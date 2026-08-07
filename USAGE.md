@@ -243,6 +243,68 @@ node dist/cli.js config:push config.example.json
 
 Path absolute, `..`, `.git`, path trùng hoặc lồng nhau bị reject trước khi chạy.
 
+## Commit template variables
+
+Trong cấu hình `commit` của many-to-one destination, có thể dùng template variables:
+
+```json
+{
+  "commit": {
+    "authorName": "{{sourceAuthor}}",
+    "authorEmail": "{{sourceAuthorEmail}}",
+    "committerName": "mirror-bot",
+    "committerEmail": "mirror-bot@example.com",
+    "messagePrefix": "[sync]",
+    "template": "{{prefix}} {{sourceRepo}}: {{sourceSubject}}",
+    "trailers": {
+      "Source-Repo": "{{sourceOwner}}/{{sourceRepo}}",
+      "Source-Ref": "{{sourceRef}}",
+      "Source-Commit": "{{sourceSha}}",
+      "Source-Author": "{{sourceAuthor}} <{{sourceAuthorEmail}}>"
+    }
+  }
+}
+```
+
+Available variables:
+
+| Variable | Mô tả |
+|----------|-------|
+| `{{sourceOwner}}` | Owner/source org |
+| `{{sourceRepo}}` | Tên repo nguồn |
+| `{{sourceRef}}` | Ref đầy đủ (VD: `refs/heads/main`) |
+| `{{sourceBranch}}` | Branch name (VD: `main`) |
+| `{{sourceSha}}` | Commit SHA đầy đủ |
+| `{{sourceShortSha}}` | SHA viết tắt (12 ký tự) |
+| `{{sourceSubject}}` | Commit message gốc (subject) |
+| `{{sourceBody}}` | Commit message body |
+| `{{sourceAuthor}}` | Tên author source commit |
+| `{{sourceAuthorEmail}}` | Email author source commit |
+| `{{sourceAuthorDate}}` | Ngày author commit (ISO) |
+| `{{sourceCommitter}}` | Tên committer source commit |
+| `{{sourceCommitterEmail}}` | Email committer source commit |
+| `{{sourceCommitterDate}}` | Ngày committer commit (ISO) |
+| `{{sourceDirectory}}` | Thư mục trong monorepo |
+| `{{instanceId}}` | ID instance đang chạy |
+| `{{timestamp}}` | ISO timestamp |
+| `{{prefix}}` | messagePrefix |
+
+Ví dụ lấy toàn bộ info từ source:
+
+```json
+{
+  "commit": {
+    "authorName": "{{sourceAuthor}}",
+    "authorEmail": "{{sourceAuthorEmail}}",
+    "committerName": "{{sourceCommitter}}",
+    "committerEmail": "{{sourceCommitterEmail}}",
+    "trailers": {
+      "Source-Author": "{{sourceAuthor}} <{{sourceAuthorEmail}}>",
+      "Source-Date": "{{sourceAuthorDate}}"
+    }
+  }
+}
+```
 
 ## Codespace Rotation
 
