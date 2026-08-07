@@ -76,7 +76,10 @@ function parseRawConfig(source: string, env: NodeJS.ProcessEnv): AppConfig {
   const envRules = parseFilterRulesFromEnv(env.SRC_FILTER_COMMIT_EXCLUDE);
   if (envRules.length > 0) {
     const existing = config.src.filter?.commit?.exclude ?? [];
-    config.src.filter = { commit: { exclude: [...existing, ...envRules] } };
+    config.src.filter = {
+      ...config.src.filter,
+      commit: { exclude: [...existing, ...envRules] },
+    };
   }
   const envRetention = Number(env.RTDB_RETENTION_DAYS);
   if (Number.isFinite(envRetention) && envRetention > 0) {

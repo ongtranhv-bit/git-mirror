@@ -89,6 +89,7 @@ export function baseConfig(workdir: string, destinations: Record<string, Destina
     },
     rtdb: {
       configPath: '/sync/config',
+      webhookPath: '/github-noti',
       pendingPath: '/sync/events/pending',
       processingPath: '/sync/events/processing',
       processedPath: '/sync/events/processed',
@@ -103,6 +104,7 @@ export function baseConfig(workdir: string, destinations: Record<string, Destina
 
 export function destination(mode: 'one-to-one' | 'many-to-one', repo = '{sourceRepo}'): DestinationConfig {
   const base = {
+    enabled: true,
     type: 'github' as const,
     creds: { type: 'github' as const, token: 'destination-secret' },
     org: 'mirror',

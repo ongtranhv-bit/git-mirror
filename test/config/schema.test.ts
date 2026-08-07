@@ -68,6 +68,17 @@ test('parses src filter exclude rules and rejects unknown modes', () => {
   });
 });
 
+test('parses repo filter rules without requiring a commit filter', () => {
+  const input = validConfig();
+  (input.src as Record<string, unknown>).filter = {
+    repo: { exclude: [{ mode: 'contains', value: 'demo' }] },
+  };
+  const config = parseConfig(input);
+  assert.deepEqual(config.src.filter, {
+    repo: { exclude: [{ mode: 'contains', value: 'demo' }] },
+  });
+});
+
 test('rejects destination without inline creds', () => {
   const input = validConfig();
   delete ((input.dest as Record<string, Record<string, unknown>>).github ?? {}).creds;

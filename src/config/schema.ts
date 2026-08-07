@@ -4,7 +4,7 @@ import { registerSecret } from '../shared/logger.js';
 import type {
   AppConfig,
   CommitConfig,
-  CommitFilterRule,
+  FilterRule,
   CredentialConfig,
   DestinationConfig,
   ProviderType,
@@ -300,29 +300,39 @@ function parseRuntime(value: unknown, issues: string[]): RuntimeConfig {
 function parseSrcFilter(value: unknown, issues: string[]): SrcFilterConfig | undefined {
   const object = optionalObject(value, '$.src.filter', issues);
   if (!object) return undefined;
-  const commitObject = optionalObject(object.commit, '$.src.filter.commit', issues);
-  if (!commitObject) return undefined;
-  const exclude: CommitFilterRule[] = [];
-  if (commitObject.exclude !== undefined) {
-    if (!Array.isArray(commitObject.exclude)) {
-      issues.push('$.src.filter.commit.exclude: expected array.');
+  const repoExclude = parseFilterExclude(object.repo, '$.src.filter.repo', issues);
+  const commitExclude = parseFilterExclude(object.commit, '$.src.filter.commit', issues);
+  if (repoExclude.length === 0 && commitExclude.length === 0) return undefined;
+  return {
+    ...(repoExclude.length > 0 ? { repo: { exclude: repoExclude } } : {}),
+    ...(commitExclude.length > 0 ? { commit: { exclude: commitExclude } } : {}),
+  };
+}
+
+function parseFilterExclude(value: unknown, path: string, issues: string[]): FilterRule[] {
+  const object = optionalObject(value, path, issues);
+  if (!object) return [];
+  const exclude: FilterRule[] = [];
+  if (object.exclude !== undefined) {
+    if (!Array.isArray(object.exclude)) {
+      issues.push(`${path}.exclude: expected array.`);
     } else {
-      for (const [index, rule] of commitObject.exclude.entries()) {
-        const ruleObject = asObject(rule, `$.src.filter.commit.exclude[${index}]`, issues);
+      for (const [index, rule] of object.exclude.entries()) {
+        const rulePath = `${path}.exclude[${index}]`;
+        const ruleObject = asObject(rule, rulePath, issues);
         if (!ruleObject) continue;
-        const mode = nonEmptyString(ruleObject.mode, `$.src.filter.commit.exclude[${index}].mode`, issues);
-        const valueText = nonEmptyString(ruleObject.value, `$.src.filter.commit.exclude[${index}].value`, issues);
-        if (mode && !FILTER_MODES.has(mode as CommitFilterRule['mode'])) {
-          issues.push(`$.src.filter.commit.exclude[${index}].mode: expected prefix, suffix, or contains.`);
+        const mode = nonEmptyString(ruleObject.mode, `${rulePath}.mode`, issues);
+        const valueText = nonEmptyString(ruleObject.value, `${rulePath}.value`, issues);
+        if (mode && !FILTER_MODES.has(mode as FilterRule['mode'])) {
+          issues.push(`${rulePath}.mode: expected prefix, suffix, or contains.`);
         }
-        if (mode && valueText && FILTER_MODES.has(mode as CommitFilterRule['mode'])) {
-          exclude.push({ mode: mode as CommitFilterRule['mode'], value: valueText });
+        if (mode && valueText && FILTER_MODES.has(mode as FilterRule['mode'])) {
+          exclude.push({ mode: mode as FilterRule['mode'], value: valueText });
         }
       }
     }
   }
-  if (exclude.length === 0) return undefined;
-  return { commit: { exclude } };
+  return exclude;
 }
 
 function parseRtdb(value: unknown, issues: string[]): RtdbPaths {  const object = optionalObject(value, '$.rtdb', issues);

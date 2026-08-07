@@ -17,6 +17,7 @@ interface GithubWebhookDelivery {
   commits?: Array<{ id: string }>;
   head_commit?: { id: string } | null;
   repository?: {
+    name?: string;
     full_name?: string;
     clone_url?: string;
     html_url?: string;
@@ -85,13 +86,14 @@ async function processDelivery(
       }
       return;
     }
-    const repoFilterMatch = isExcludedRepo(event.repo, options.config.src.filter);
+    const repoName = payload.repository?.name ?? event.repo.split('/').at(-1) ?? event.repo;
+    const repoFilterMatch = isExcludedRepo(repoName, options.config.src.filter);
     if (repoFilterMatch.matched) {
       const claimed = await claimDelivery(options, childPath);
       if (claimed) {
         result.skipped += 1;
         log.info(
-          { mode: repoFilterMatch.rule?.mode, value: repoFilterMatch.rule?.value, repo: event.repo },
+          { mode: repoFilterMatch.rule?.mode, value: repoFilterMatch.rule?.value, repo: event.repo, repoName },
           'webhook.filtered_repo',
         );
         await options.client.remove(childPath);
