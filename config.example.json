@@ -14,6 +14,20 @@
         "type": "azure",
         "token": "${SOURCE_AZURE_PAT}"
       }
+    },
+    "filter": {
+      "repo": {
+        "exclude": [
+          { "mode": "contains", "value": "dhlibraries" },
+          { "mode": "contains", "value": "otherlibraries" },
+          { "mode": "contains", "value": "demo-tolaptrinh" },
+          { "mode": "contains", "value": "temp-transfer-msbuild-files" },
+          { "mode": "prefix", "value": "Debug" },
+          { "mode": "suffix", "value": ".exe" },
+          { "mode": "contains", "value": "msbuild-v2" },
+          { "mode": "contains", "value": "msbuild-tools" }
+        ]
+      }
     }
   },
   "dest": {

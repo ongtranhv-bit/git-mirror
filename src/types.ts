@@ -100,16 +100,19 @@ export interface AppConfig {
   rtdb: RtdbPaths;
 }
 
-export type CommitFilterMode = 'prefix' | 'suffix' | 'contains';
+export type FilterMode = 'prefix' | 'suffix' | 'contains';
 
-export interface CommitFilterRule {
-  mode: CommitFilterMode;
+export interface FilterRule {
+  mode: FilterMode;
   value: string;
 }
 
 export interface SrcFilterConfig {
+  repo?: {
+    exclude?: FilterRule[];
+  };
   commit?: {
-    exclude?: CommitFilterRule[];
+    exclude?: FilterRule[];
   };
 }
 

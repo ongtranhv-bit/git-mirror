@@ -2,7 +2,7 @@ import type { Logger } from '../shared/logger.js';
 import { toPublicError } from '../shared/errors.js';
 import { stableHash } from '../shared/paths.js';
 import type { RtdbClient } from '../rtdb/client.js';
-import { commitMessagesOf, isExcludedCommit } from '../filter.js';
+import { commitMessagesOf, isExcludedCommit, isExcludedRepo } from '../filter.js';
 import type { AppConfig, HookEvent, ProviderType } from '../types.js';
 
 interface GithubWebhookDelivery {
@@ -81,6 +81,19 @@ async function processDelivery(
       if (claimed) {
         result.skipped += 1;
         log.info({}, 'webhook.skipped');
+        await options.client.remove(childPath);
+      }
+      return;
+    }
+    const repoFilterMatch = isExcludedRepo(event.repo, options.config.src.filter);
+    if (repoFilterMatch.matched) {
+      const claimed = await claimDelivery(options, childPath);
+      if (claimed) {
+        result.skipped += 1;
+        log.info(
+          { mode: repoFilterMatch.rule?.mode, value: repoFilterMatch.rule?.value, repo: event.repo },
+          'webhook.filtered_repo',
+        );
         await options.client.remove(childPath);
       }
       return;

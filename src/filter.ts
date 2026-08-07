@@ -1,10 +1,10 @@
-import type { CommitFilterMode, CommitFilterRule, SrcFilterConfig } from './types.js';
+import type { FilterMode, FilterRule, SrcFilterConfig } from './types.js';
 
-const FILTER_MODES: CommitFilterMode[] = ['prefix', 'suffix', 'contains'];
+const FILTER_MODES: FilterMode[] = ['prefix', 'suffix', 'contains'];
 
-export interface CommitFilterMatch {
+export interface FilterMatch {
   matched: boolean;
-  rule?: CommitFilterRule;
+  rule?: FilterRule;
 }
 
 export function commitMessagesOf(raw: unknown): string[] {
@@ -26,19 +26,24 @@ export function commitMessagesOf(raw: unknown): string[] {
   return messages;
 }
 
-export function matchesFilter(message: string, rules: CommitFilterRule[] | undefined): CommitFilterMatch {
+export function matchesFilter(value: string, rules: FilterRule[] | undefined): FilterMatch {
   if (!rules || rules.length === 0) return { matched: false };
-  const normalized = message.trim().toLowerCase();
+  const normalized = value.trim().toLowerCase();
   for (const rule of rules) {
-    const value = rule.value.trim().toLowerCase();
-    if (value === '') continue;
-    const matched = rule.mode === 'prefix' ? normalized.startsWith(value) : rule.mode === 'suffix' ? normalized.endsWith(value) : normalized.includes(value);
+    const ruleValue = rule.value.trim().toLowerCase();
+    if (ruleValue === '') continue;
+    const matched = rule.mode === 'prefix' ? normalized.startsWith(ruleValue) : rule.mode === 'suffix' ? normalized.endsWith(ruleValue) : normalized.includes(ruleValue);
     if (matched) return { matched: true, rule };
   }
   return { matched: false };
 }
 
-export function isExcludedCommit(messages: string[], filter: SrcFilterConfig | undefined): CommitFilterMatch {
+export function isExcludedRepo(repoName: string, filter: SrcFilterConfig | undefined): FilterMatch {
+  const rules = filter?.repo?.exclude;
+  return matchesFilter(repoName, rules);
+}
+
+export function isExcludedCommit(messages: string[], filter: SrcFilterConfig | undefined): FilterMatch {
   const rules = filter?.commit?.exclude;
   if (!rules || rules.length === 0) return { matched: false };
   for (const message of messages) {
@@ -48,14 +53,14 @@ export function isExcludedCommit(messages: string[], filter: SrcFilterConfig | u
   return { matched: false };
 }
 
-export function parseFilterRulesFromEnv(value: string | undefined): CommitFilterRule[] {
+export function parseFilterRulesFromEnv(value: string | undefined): FilterRule[] {
   if (!value || value.trim() === '') return [];
-  const rules: CommitFilterRule[] = [];
+  const rules: FilterRule[] = [];
   for (const entry of value.split(',')) {
     const trimmed = entry.trim();
     if (trimmed === '') continue;
     const separator = trimmed.indexOf(':');
-    const mode = (separator === -1 ? trimmed : trimmed.slice(0, separator)).trim() as CommitFilterMode;
+    const mode = (separator === -1 ? trimmed : trimmed.slice(0, separator)).trim() as FilterMode;
     const ruleValue = separator === -1 ? '' : trimmed.slice(separator + 1).trim();
     if (FILTER_MODES.includes(mode) && ruleValue !== '') rules.push({ mode, value: ruleValue });
   }
