@@ -1,26 +1,67 @@
-# agy-auth — lấy 2 URL auth của Antigravity CLI (`agy`)
+# agy-auth — lấy 2 URL auth của Antigravity CLI (`agy`) không cần TUI
 
-Thư mục này chứa script dùng **PTY thật** để điều khiển CLI `agy` của Antigravity,
-tự động bắt **2 URL quan trọng** mà AGY sinh ra trong quá trình Google OAuth:
+Thư mục này chứa script bắt **2 URL quan trọng** mà `agy` sinh ra trong quá trình
+Google OAuth, **không cần thao tác TUI** (không bấm phím, không chọn menu, không
+điều hướng onboarding):
 
 | # | URL | Khi nào xuất hiện |
 |---|-----|--------------------|
-| 1 | **OAuth authorization URL** — `https://accounts.google.com/o/oauth2/auth?access_type=offline&client_id=...&redirect_uri=https%3A%2F%2Fantigravity.google%2Foauth-callback&response_type=code&...` | Khi chọn **Google OAuth** trong menu login |
-| 2 | **Eligibility / verify URL** — `https://accounts.google.com/signin/continue?sarp=1&scc=1&continue=https://developers.google.com/gemini-code-assist/auth/auth_success_gemini&...` | Sau khi login thành công, **chỉ khi Eligibility Check fail** (tài khoản chưa được verify/không đủ điều kiện) |
+| 1 | **OAuth authorization URL** — `https://accounts.google.com/o/oauth2/auth?access_type=offline&client_id=...&redirect_uri=https%3A%2F%2Fantigravity.google%2Foauth-callback&response_type=code&...` | Khi chưa có token, `agy` in ra để login |
+| 2 | **Eligibility / verify URL** — `https://accounts.google.com/signin/continue?sarp=1&scc=1&continue=https://developers.google.com/gemini-code-assist/auth/auth_success_gemini&...` | Sau login, **chỉ khi Eligibility Check fail** (tài khoản chưa được verify) |
+
+## Cách tiếp cận: print mode (`agy -p`) — KHÔNG phải TUI
+
+Phiên bản đầu điều khiển TUI `agy -i` bằng phím bấm qua PTY (chọn menu login,
+onboarding, chat input…). Sau khi nghiên cứu (`google-antigravity/antigravity-cli`,
+docs `antigravity.google/docs/cli/headless`, Reddit/forum, log thực tế), đã tối ưu
+thành **print mode** — đơn giản và chắc chắn hơn nhiều:
+
+- `agy -p "<prompt>"` dưới một PTY thường (không cần trả lời capability query,
+  không cần chọn `Google OAuth`, không cần onboarding) sẽ tự in:
+  ```
+  Authentication required. Please visit the URL to log in:
+  https://accounts.google.com/o/oauth2/auth?...
+  Waiting for authentication (timeout 60s)...
+  Or, paste the authorization code here and press Enter:
+  ```
+- OAuth URL đọc được **dạng plain-text** từ output → URL #1.
+- Code được **dán lại qua stdin của PTY** (một dòng + Enter).
+- Sau khi login, AGY chạy check quota `retrieveUserQuotaSummary` → nếu tài khoản
+  chưa eligible, backend trả `PERMISSION_DENIED (403) VALIDATION_REQUIRED` kèm
+  `metadata.validation_url` → URL #2. Nguồn chắc chắn nhất là **`--log-file`**
+  (AGY ghi nguyên văn), script vừa quét output vừa tail log file.
+
+Thao tác thủ công còn lại duy nhất: **mở OAuth URL và dán code** (bản chất PKCE
+của OAuth — không thể bỏ, trừ khi dùng browser automation + credential).
+
+## Những flag / env var quan trọng (kết quả nghiên cứu)
+
+| Flag / Env | Tác dụng |
+|---|---|
+| `agy -p / --print / --prompt "..."` | Chạy 1 prompt, in kết quả ra stdout, không có TUI |
+| `--print-timeout <d>` | Chờ model tối đa (mặc định 5m). **KHÔNG** phải là auth-wait |
+| `--log-file <path>` | Ghi log → chứa nguyên văn `validation_url` (URL #2) |
+| `--dangerously-skip-permissions` | Auto-approve mọi tool permission (tương đương `--approve all` / `--yolo` của gemini-cli) |
+| `GEMINI_FORCE_FILE_STORAGE=true` | Bắt AGY lưu token dạng **file** (không dùng keyring/D-Bus) |
+| `SSH_CONNECTION` / `SSH_CLIENT` / `SSH_TTY` | Đánh dấu session SSH → AGY dùng file-based token storage |
+| `TZ=UTC` | Tránh lỗi timezone offset của FileKeychain (issue #53) |
+| preseed `~/.gemini/antigravity-cli/cache/onboarding.json` | `{"onboardingComplete":true,...}` → bỏ toàn bộ onboarding (dùng khi cần `-i`) |
+| preseed `settings.json` → `"trustedWorkspaces"` | Bỏ prompt "Do you trust the contents?" |
+| `ANTIGRAVITY_TOKEN` (CI) | Chưa có flag/API-key thay thế OAuth; `GEMINI_API_KEY` **không** được AGY hỗ trợ (issue #78) |
 
 ## Files
 
 ```
 agy-auth/
-├── agy_oauth_flow.py   # script chính (Python 3, dùng pty.fork)
+├── agy_oauth_flow.py   # script chính (Python 3, pty.fork + print mode)
 └── README.md
 ```
 
 ## Yêu cầu
 
 - Python 3.
-- `agy` đã cài (`curl -fsSL https://antigravity.google/cli/install.sh | bash`), mặc định tại `~/.local/bin/agy` (có thể truyền `--agy-binary`).
-- Môi trường có **terminal thật** (PTY). Script KHÔNG dùng pipe `stdin/stdout` thường để `agy` nhận biết nó đang chạy trong terminal.
+- `agy` đã cài (`curl -fsSL https://antigravity.google/cli/install.sh | bash`), mặc định `~/.local/bin/agy` (`--agy-binary` nếu khác).
+- Môi trường có **PTY** (script tự mở PTY bằng `pty.fork` — không cần terminal thật).
 
 ## Cách chạy
 
@@ -31,73 +72,73 @@ python3 agy_oauth_flow.py --outdir ./out
 Tùy chọn:
 
 ```bash
-# đọc code từ file thay vì dán tay (code 1 dòng)
+# code có sẵn trong file (1 dòng) — dùng được trong CI/không cần người ngồi máy
 python3 agy_oauth_flow.py --code-file /path/to/auth-code --outdir ./out
 
-# binary agy ở chỗ khác / timeout khác
-python3 agy_oauth_flow.py --agy-binary /opt/agy --timeout 600 --outdir ./out
+# dùng lại HOME đã có token (không login lại, chỉ chạy prompt để bắt URL #2)
+python3 agy_oauth_flow.py --home /path/to/home --outdir ./out
+
+# giữ lại HOME tạm sau khi chạy (mặc định xoá)
+python3 agy_oauth_flow.py --keep-home --outdir ./out
+
+# custom binary / timeout / prompt
+python3 agy_oauth_flow.py --agy-binary /opt/agy --timeout 600 --prompt "Reply with OK" --outdir ./out
 ```
 
 ## Các bước — tự động hay thủ công?
 
-Script điều khiển toàn bộ TUI bằng phím bấm (escape sequence) qua PTY.
-**Không cần bạn chọn gì trong TUI.** Chia theo vai trò:
-
 | Bước | Loại | Mô tả |
 |------|------|-------|
-| Mở `agy -i "Reply with OK"` trên PTY | 🔧 **Tự động** | `pty.fork()`, `TERM=xterm-256color`, terminal rộng 2000 cột (URL không bị wrap) |
-| Chọn `Google OAuth` | 🔧 **Tự động** | khi thấy `Select login method` → gửi Enter (Google OAuth là mục mặc định) |
-| Bắt **URL #1** (OAuth) | 🔧 **Tự động** | regex URL từ raw PTY bytes, in ra stdout + ghi `oauth-url.txt` |
-| Mở URL #1, đăng nhập Google, copy code | 👤 **Thủ công — ngoài terminal** | bạn thao tác trên browser |
-| Dán **authorization code** | 👤 **Thủ công — duy nhất trong terminal** | script in prompt `> ` và chờ bạn dán code rồi Enter |
-| Gửi code vào session | 🔧 **Tự động** | script gửi code + Enter vào PTY |
-| Onboarding: chọn color scheme → `[Next]` | 🔧 **Tự động** | giữ mặc định `terminal` |
-| Onboarding: Terms of Service → bỏ tick data-sharing → `[Done]` | 🔧 **Tự động** | Space (bỏ tick) → ↓ → → → Enter |
-| Onboarding: "Do you trust the contents?" → `Yes` | 🔧 **Tự động** | Enter |
-| Gửi prompt `Reply with OK` | 🔧 **Tự động** | khi thấy chat input (`? for shortcuts`) |
-| Eligibility Check | 🔧 **Tự động** | AGY tự chạy |
-| Bắt **URL #2** (verify) nếu eligibility fail | 🔧 **Tự động** | in stdout + ghi `verify-url.txt`, thoát sau khi ổn định |
+| Tạo HOME tạm + preseed onboarding/settings | 🔧 **Tự động** | bỏ toàn bộ onboarding & trust prompt |
+| Chạy `agy -p "Reply with OK"` trên PTY | 🔧 **Tự động** | `pty.fork()`, PTY rộng 2000 cột (URL không wrap) |
+| Bắt **URL #1** (OAuth) | 🔧 **Tự động** | plain-text từ output, regex + ghi `oauth-url.txt` |
+| Mở URL #1, đăng nhập Google, copy code | 👤 **Thủ công — ngoài terminal** | thao tác trên browser |
+| Dán **authorization code** | 👤 **Thủ công — duy nhất** | script in `> ` chờ dán (hoặc `--code-file`) |
+| Gửi code vào AGY | 🔧 **Tự động** | gửi code + Enter qua PTY stdin |
+| Login + Eligibility Check | 🔧 **Tự động** | AGY tự chạy |
+| Bắt **URL #2** (verify) nếu fail | 🔧 **Tự động** | quét output + tail `--log-file`, ghi `verify-url.txt` |
+| Lưu token (nếu login thành công) | 🔧 **Tự động** | copy `antigravity-oauth-token` ra outdir |
 
-## Quan trọng về PKCE (nguyên nhân 4 lần fail "Invalid code verifier")
+## Quan trọng về PKCE
 
-Mỗi lần chạy `agy -i` mới, AGY sinh **PKCE verifier/challenge mới**. Google authorization
-code **chỉ dùng được 1 lần** và **gắn với đúng URL của lần chạy đó**:
+Mỗi lần chạy AGY sinh **PKCE verifier/challenge mới**; authorization code **dùng 1
+lần** và **gắn với đúng URL của lần chạy đó**:
 
-- Code lấy từ URL của lần chạy A **không dùng được** trong lần chạy B (kể cả khi chạy song song
-  cùng lúc) → lỗi `oauth2: "invalid_grant" "Invalid code verifier."`.
-- Vì vậy script **giữ session sống** và chờ bạn dán code ngay trong chính lần chạy đó.
-- Đừng tái sử dụng tab/cửa sổ cũ — mở **đúng URL mới** mà script in ra (tốt nhất là incognito).
+- Code lấy từ URL lần chạy A **không dùng được** ở lần chạy B → `invalid_grant` / `Invalid code verifier`.
+- Script chờ bạn dán code **ngay trong lần chạy đó**; nếu quá lâu, AGY thoát sau
+  `~60s` (auth-wait không cấu hình được) → chạy lại để lấy URL mới.
+- Luôn mở **đúng URL mới** script in ra (nên dùng incognito).
 
 ## Kết quả đầu ra (`--outdir`, mặc định `out/`)
 
 | File | Nội dung |
 |------|----------|
-| `oauth-url.txt` | URL #1 nguyên bản, không cắt/không decode |
+| `oauth-url.txt` | URL #1 nguyên bản |
 | `verify-url.txt` | URL #2 nguyên bản (nếu có) |
-| `urls.txt` | mọi URL HTTP/HTTPS bắt được, de-dup giữ thứ tự |
-| `agy-output.raw` | raw PTY bytes |
-| `agy-output.txt` | bản đã strip ANSI |
+| `antigravity-oauth-token` | token sau login (nếu có) — **credential nhạy cảm** |
+| `urls.txt` | mọi URL bắt được, de-dup giữ thứ tự |
+| `agy-output.raw` / `agy-output.txt` | output PTY (raw / đã strip ANSI) |
 | `status` | `oauth_url=yes/no`, `verify_url=yes/no`, lỗi nếu có |
+
+Exit code: `0` nếu bắt được URL #1; `1` nếu không (vd. HOME đã có token → không login).
 
 ## Các trường hợp thực tế
 
-**1. Máy chưa login** (login menu xuất hiện):
-OAuth URL → bạn dán code → login → onboarding → prompt → Eligibility Check →
-**verify URL nếu tài khoản chưa eligible**; nếu eligible thì không có URL #2.
+**1. Chưa login (mặc định — HOME tạm mới):**
+OAuth URL → dán code → login → Eligibility Check → **verify URL nếu chưa eligible**;
+nếu eligible thì không có URL #2 (chỉ có "OK").
 
-**2. Máy đã login + đã onboarded** (không có login menu):
-Script vào thẳng chat → gửi prompt → Eligibility Check → bắt verify URL nếu fail.
-Trên tài khoản đã verify, không có URL #2, status bar chat hiển thị nhãn
-`? for shortcuts (Antigravity Starter Quota)` — **Starter quota là nhãn trong TUI,
-không phải URL**.
+**2. Đã login (`--home` có sẵn token):**
+Không có URL #1; script chạy prompt headless → bắt URL #2 nếu tài khoản bị
+ineligible. Tài khoản đã verify: không có URL nào, exit 1.
 
-**3. Code sai/đã dùng/không khớp**:
-Script phát hiện `token exchange failed` / `Invalid code verifier`, dừng lại,
-ghi lỗi vào `status`, trả về exit 0 (vì đã có OAuth URL).
+**3. Code sai/đã dùng:**
+Script phát hiện `token exchange failed`, ghi vào `status`, exit 0 (đã có URL #1).
 
 ## Ghi chú bảo mật
 
-- Không hiển thị `access_token` / `refresh_token` / authorization code trong output.
-- URL #2 có tham số `plt=...` (page-load token tạm của Google) do chính AGY in ra — giữ nguyên.
-- ToS checkbox để **không tick** (không gửi Interactions data); bạn vẫn có thể đổi trong settings của CLI.
-- `auth-code` nên được xoá sau khi dùng (code dùng 1 lần).
+- Không in `access_token`/`refresh_token`/code ra output.
+- URL #2 có `plt=...` (page-load token tạm của Google) do AGY in ra — giữ nguyên.
+- ToS/data-sharing checkbox: print mode không hỏi (không bị bắt phải đồng ý gửi data).
+- `--dangerously-skip-permissions` auto-approve cả file-write & command — chỉ dùng trong môi trường đã kiểm soát.
+- `antigravity-oauth-token` và `auth-code` là dữ liệu nhạy cảm — xoá sau khi dùng, đừng commit.
