@@ -26,12 +26,7 @@ export class GitHubProvider implements ProviderAdapter {
   }
 
   async validateCredential(): Promise<void> {
-    await requestJson(`${this.apiBase}/user`, {
-      method: 'GET',
-      headers: this.headers(),
-      timeoutMs: this.timeoutMs,
-      expected: [200],
-    });
+    await this.authenticatedUser();
   }
 
   async getRepository(input: RepoLocator): Promise<RemoteRepository | null> {
@@ -45,8 +40,56 @@ export class GitHubProvider implements ProviderAdapter {
   }
 
   async createRepository(input: CreateRepoInput): Promise<RemoteRepository> {
-    const response = await requestJson<GitHubRepositoryResponse>(
+    const orgResponse = await requestJson<GitHubRepositoryResponse>(
       `${this.apiBase}/orgs/${encodeURIComponent(input.org)}/repos`,
+      {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({ name: input.repo, private: input.private, description: input.description }),
+        timeoutMs: this.timeoutMs,
+        expected: [201, 422, 404],
+      },
+    );
+    if (orgResponse.status === 404) {
+      const user = await this.authenticatedUser();
+      if (user.login !== input.org) {
+        throw new AppError(
+          'PROVIDER_CREATE_FORBIDDEN',
+          `Cannot create ${input.org}/${input.repo}: ${input.org} is not an accessible organization or the authenticated user.`,
+          { retryable: false },
+        );
+      }
+      return this.createForAuthenticatedUser(input);
+    }
+    if (orgResponse.status === 422) {
+      const existing = await this.getRepository(input);
+      if (existing) return existing;
+      throw new AppError('PROVIDER_CREATE_CONFLICT', `GitHub reported a conflict creating ${input.org}/${input.repo}.`);
+    }
+    if (!orgResponse.body) throw new AppError('PROVIDER_RESPONSE_INVALID', 'GitHub returned an empty create response.');
+    return { ...this.map(orgResponse.body), created: true };
+  }
+
+  resolveCloneUrl(input: RepoLocator): string {
+    const host = this.config.baseUrl?.replace(/\/$/, '') ?? 'https://github.com';
+    return `${host}/${input.org}/${input.repo}.git`;
+  }
+
+
+  private async authenticatedUser(): Promise<{ login: string }> {
+    const response = await requestJson<{ login: string }>(`${this.apiBase}/user`, {
+      method: 'GET',
+      headers: this.headers(),
+      timeoutMs: this.timeoutMs,
+      expected: [200],
+    });
+    if (!response.body) throw new AppError('PROVIDER_RESPONSE_INVALID', 'GitHub returned an empty user response.');
+    return response.body;
+  }
+
+  private async createForAuthenticatedUser(input: CreateRepoInput): Promise<RemoteRepository> {
+    const response = await requestJson<GitHubRepositoryResponse>(
+      `${this.apiBase}/user/repos`,
       {
         method: 'POST',
         headers: this.headers(),
@@ -63,12 +106,6 @@ export class GitHubProvider implements ProviderAdapter {
     if (!response.body) throw new AppError('PROVIDER_RESPONSE_INVALID', 'GitHub returned an empty create response.');
     return { ...this.map(response.body), created: true };
   }
-
-  resolveCloneUrl(input: RepoLocator): string {
-    const host = this.config.baseUrl?.replace(/\/$/, '') ?? 'https://github.com';
-    return `${host}/${input.org}/${input.repo}.git`;
-  }
-
 
   private headers(): Record<string, string> {
     return {
