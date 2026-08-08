@@ -2,8 +2,9 @@ name: Git Mirror Sync Worker
 
 on:
   schedule:
-    # Every 58 minutes: cron minute granularity runs at :00 and :58 each hour.
-    - cron: '*/58 * * * *'
+    # Hourly at :07 UTC (off top-of-hour, which GitHub Actions drops under load).
+    # The 55-minute worker ends ~:02, leaving a ~5 minute gap each hour.
+    - cron: '7 * * * *'
   workflow_dispatch:
     inputs:
       run_minutes:
