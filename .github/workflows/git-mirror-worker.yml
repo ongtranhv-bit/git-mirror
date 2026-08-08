@@ -1,0 +1,56 @@
+name: Git Mirror Sync Worker
+
+on:
+  schedule:
+    # Every 58 minutes: cron minute granularity runs at :00 and :58 each hour.
+    - cron: '*/58 * * * *'
+  workflow_dispatch:
+    inputs:
+      run_minutes:
+        description: 'Thời gian chạy listener liên tục (phút)'
+        required: false
+        default: '55'
+        type: number
+
+permissions:
+  contents: read
+
+concurrency:
+  # Keep only one listener chain: the next run queues until the current one
+  # finishes, so the worker keeps running with minimal gaps.
+  group: git-mirror-worker-production
+  cancel-in-progress: false
+
+jobs:
+  worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      RTDB_URL: ${{ secrets.RTDB_URL }}
+      GOOGLE_SERVICE_ACCOUNT_B64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_B64 }}
+      RTDB_AUTH_SECRET: ${{ secrets.RTDB_AUTH_SECRET }}
+      NODE_ENV: production
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies (npm cache)
+        run: npm ci --ignore-scripts
+      - name: Build
+        run: npm run build
+      - name: Run worker listener (keep-alive)
+        shell: bash
+        run: |
+          set -euo pipefail
+          minutes="${{ inputs.run_minutes || '55' }}"
+          seconds=$(( minutes * 60 ))
+          echo "Starting git-mirror worker (run --bridge) for ${minutes} minutes, then graceful SIGTERM."
+          node dist/cli.js run --bridge &
+          pid=$!
+          forward() { kill -TERM "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; exit 0; }
+          trap forward TERM INT
+          sleep "$seconds"
+          kill -TERM "$pid"
+          wait "$pid"
