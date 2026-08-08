@@ -36,11 +36,7 @@ jobs:
         with:
           node-version: '22'
       - name: Install dependencies
-        run: |
-          rm -rf node_modules
-          npm ci --ignore-scripts
-          node -e "console.log('tsc entry:', require.resolve('typescript/lib/tsc.js'))"
-          readlink node_modules/typescript
+        run: npm ci --ignore-scripts --include=dev
       - name: Build
         run: npm run build
       - name: Run worker listener (keep-alive)
