@@ -16,7 +16,9 @@ export interface GitRunOptions {
 }
 
 export async function runGit(args: string[], options: GitRunOptions): Promise<CommandResult> {
-  return runCommand('git', args, {
+  // Force HTTP/1.1 for git smart HTTP: HTTP/2 stream cancellations cause
+  // "RPC failed; curl 92 ... CANCEL" during pushes to Azure DevOps.
+  return runCommand('git', ['-c', 'http.version=HTTP/1.1', ...args], {
     cwd: options.cwd,
     env: options.credential ? gitCredentialEnv(options.credential, options.env ?? process.env) : options.env ?? process.env,
     timeoutMs: options.timeoutMs,
