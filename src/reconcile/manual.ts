@@ -8,8 +8,8 @@ import { ensureDestinationWorkspace, ensureSourceWorkspace } from '../git/worksp
 import { directoryTreeMatchesCommit } from '../git/directory-sync.js';
 import { listRemoteRefs } from '../git/remote-refs.js';
 import { refsForPushPolicy } from '../git/mirror.js';
-import { stableHash } from '../shared/paths.js';
-import { acquireDestinationLock, refreshLock, releaseDestinationLock } from '../rtdb/locks.js';
+import { stableHash, sanitizeRtdbKey } from '../shared/paths.js';
+import { acquireDestinationLock, isLockStale, refreshLock, releaseDestinationLock, type LockRecord } from '../rtdb/locks.js';
 import { AppError, toPublicError } from '../shared/errors.js';
 import type { Logger } from '../shared/logger.js';
 import { isSameRepository, render, resolveDirectory } from '../sync/router.js';
@@ -63,6 +63,20 @@ export async function reconcileRepositories(input: {
 }): Promise<ManualReconcileResult> {
   const lockKey = 'manual-reconcile';
   const owner = `reconcile-${process.pid}-${stableHash(`${Date.now()}:${Math.random()}`)}`;
+  const lockPath = `${input.config.rtdb.locksPath}/${sanitizeRtdbKey(lockKey)}`;
+  const existingLock = await input.client.get<LockRecord>(lockPath);
+  if (existingLock) {
+    const now = Date.now();
+    input.logger.info(
+      {
+        owner: existingLock.owner,
+        heartbeatAgeMs: now - Number(existingLock.heartbeatAt ?? existingLock.claimedAt),
+        expiresInMs: existingLock.expiresAt - now,
+        stale: isLockStale(existingLock, input.config.runtime.lockTtlSeconds, now),
+      },
+      'reconcile.lock_observed',
+    );
+  }
   const locked = await acquireDestinationLock(
     input.client,
     input.config.rtdb.locksPath,
@@ -73,7 +87,6 @@ export async function reconcileRepositories(input: {
   if (!locked) {
     throw new AppError('RECONCILE_ALREADY_RUNNING', 'Another manual reconcile run currently holds the RTDB reconcile lock.', { retryable: true });
   }
-  const lockPath = `${input.config.rtdb.locksPath}/manual-reconcile`;
   const heartbeat = setInterval(
     () => void refreshLock(input.client, lockPath, owner, input.config.runtime.lockTtlSeconds)
       .catch((error) => input.logger.warn({ error: toPublicError(error) }, 'reconcile.lock_heartbeat_failed')),
@@ -131,7 +144,20 @@ async function reconcileRepositoriesLocked(input: {
 
   for (const repository of selected) {
     result.scanned += 1;
+    input.logger.info({ sourceRepo: repository.fullName, defaultBranch: repository.defaultBranch }, 'reconcile.repo_started');
     const item = await reconcileRepository({ ...input, repository, destinationFilter, destinationWorkspaceCache });
+    input.logger.info(
+      {
+        sourceRepo: repository.fullName,
+        status: item.status,
+        ref: item.ref,
+        sha: item.sha,
+        eventId: item.eventId,
+        targetDestinations: item.targetDestinations,
+        error: item.error,
+      },
+      'reconcile.repo_done',
+    );
     result.repositories.push(item);
     if (item.status === 'queued') result.queued += 1;
     else if (item.status === 'would-queue') result.wouldQueue += 1;
@@ -224,18 +250,34 @@ async function reconcileRepository(input: {
     const destinations: DestinationDrift[] = [];
     const drifted: string[] = [];
     let sourceWorkspace: string | undefined;
+    const recordDestination = (result: DestinationDrift): void => {
+      destinations.push(result);
+      const context: Record<string, unknown> = {
+        sourceRepo: repository.fullName,
+        destinationId: result.destinationId,
+        status: result.status,
+        reason: result.reason,
+        error: result.error,
+      };
+      if (result.status === 'in-sync' || result.status === 'skipped') {
+        input.logger.debug(context, 'reconcile.destination_compared');
+      } else {
+        input.logger.info(context, 'reconcile.destination_compared');
+      }
+    };
 
     for (const [destinationId, destination] of Object.entries(input.config.dest)) {
       if (input.destinationFilter && !input.destinationFilter.has(destinationId)) continue;
       if (destination.enabled === false) {
-        destinations.push({ destinationId, status: 'skipped', reason: 'destination-disabled' });
+        recordDestination({ destinationId, status: 'skipped', reason: 'destination-disabled' });
         continue;
       }
       const locator = locatorFor(destination, source);
       if (isSameRepository(destination.type, locator, source)) {
-        destinations.push({ destinationId, status: 'skipped', reason: 'self-loop' });
+        recordDestination({ destinationId, status: 'skipped', reason: 'self-loop' });
         continue;
       }
+      input.logger.debug({ sourceRepo: repository.fullName, destinationId }, 'reconcile.destination_checking');
       try {
         const adapter = input.adapters?.[destinationId] ?? createProviderAdapter(destinationId, destination, input.config.runtime.apiTimeoutMs);
         let cloneUrl = adapter.resolveCloneUrl(locator);
@@ -244,14 +286,14 @@ async function reconcileRepository(input: {
           const existing = await adapter.getRepository(locator);
           if ((input.apiDelayMs ?? 0) > 0) await delay(input.apiDelayMs);
           if (!existing) {
-            destinations.push({ destinationId, status: 'drift', reason: 'destination-missing' });
+            recordDestination({ destinationId, status: 'drift', reason: 'destination-missing' });
             drifted.push(destinationId);
             continue;
           }
           cloneUrl = existing.cloneUrl;
           destinationRemote = await listRemoteRefs(cloneUrl, destination.creds, input.config.runtime.gitTimeoutMs);
           if (!destinationRemote.ok) {
-            destinations.push({ destinationId, status: 'error', reason: 'destination-unreachable', error: destinationRemote.error });
+            recordDestination({ destinationId, status: 'error', reason: 'destination-unreachable', error: destinationRemote.error });
             continue;
           }
         }
@@ -259,9 +301,9 @@ async function reconcileRepository(input: {
         if (destination.mode === 'one-to-one') {
           const reason = compareOneToOne(sourceRemote.refs, destinationRemote.refs, destination);
           if (reason) {
-            destinations.push({ destinationId, status: 'drift', reason });
+            recordDestination({ destinationId, status: 'drift', reason });
             drifted.push(destinationId);
-          } else destinations.push({ destinationId, status: 'in-sync' });
+          } else recordDestination({ destinationId, status: 'in-sync' });
           continue;
         }
 
@@ -292,11 +334,11 @@ async function reconcileRepository(input: {
           input.config.runtime.gitTimeoutMs,
         );
         if (!matches) {
-          destinations.push({ destinationId, status: 'drift', reason: 'directory-tree-mismatch' });
+          recordDestination({ destinationId, status: 'drift', reason: 'directory-tree-mismatch' });
           drifted.push(destinationId);
-        } else destinations.push({ destinationId, status: 'in-sync' });
+        } else recordDestination({ destinationId, status: 'in-sync' });
       } catch (error) {
-        destinations.push({ destinationId, status: 'error', error: toPublicError(error) });
+        recordDestination({ destinationId, status: 'error', error: toPublicError(error) });
       }
     }
 

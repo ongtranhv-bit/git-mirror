@@ -8,6 +8,15 @@ export interface LockRecord {
   heartbeatAt: number;
 }
 
+export function heartbeatIntervalMs(ttlSeconds: number): number {
+  return Math.max(1_000, Math.floor((ttlSeconds * 1_000) / 3));
+}
+
+export function isLockStale(lock: LockRecord, ttlSeconds: number, now: number = Date.now()): boolean {
+  const lastSeenAt = Number(lock.heartbeatAt ?? lock.claimedAt);
+  return now - lastSeenAt > 2 * heartbeatIntervalMs(ttlSeconds);
+}
+
 export async function claimEventAtomically(
   client: RtdbClient,
   processingPath: string,
@@ -33,7 +42,7 @@ export async function acquireDestinationLock(
 ): Promise<boolean> {
   const now = Date.now();
   const result = await client.transaction<LockRecord>(`${locksPath}/${sanitizeRtdbKey(lockKey)}`, (current) => {
-    if (current && current.expiresAt >= now && current.owner !== owner) return undefined;
+    if (current && current.expiresAt >= now && current.owner !== owner && !isLockStale(current, ttlSeconds, now)) return undefined;
     return { owner, claimedAt: current?.claimedAt ?? now, heartbeatAt: now, expiresAt: now + ttlSeconds * 1_000 };
   });
   return result.committed;
