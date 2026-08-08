@@ -190,7 +190,71 @@ SRC_FILTER_COMMIT_EXCLUDE=prefix:Debug,suffix:[no-sync],contains:skip-me
 - Bridge kiểm tra message của mọi commit trong push (head_commit lẫn commits[]); chỉ cần 1 commit khớp là skip cả push.
 - Event bị skip được claim delivery để không xử lý lại.
 
-## Sync thủ công
+## Manual reconcile toàn bộ source -> destinations
+
+Dùng khi muốn kiểm tra lại toàn bộ source repository và bù những destination bị thiếu/lệch mà **không cần có webhook event sẵn**. Lệnh dùng cùng cơ chế nạp config và cùng RTDB credentials với listener (`RTDB_URL` + `RTDB_AUTH_SECRET` hoặc `GOOGLE_SERVICE_ACCOUNT_B64`). Nếu không truyền `--config`, config vẫn được lấy từ RTDB theo cơ chế hiện tại.
+
+```bash
+# Khuyến nghị: giới hạn owner/org để PAT không quét các repo không liên quan
+node dist/cli.js reconcile --owner source-org
+
+# Chỉ kiểm tra một số repo / destination
+node dist/cli.js reconcile --owner source-org --repo app,shared-lib --dest github-main,azure-main
+
+# Chỉ xem drift, không enqueue
+node dist/cli.js reconcile --owner source-org --dry-run
+
+# Giãn nhịp để giảm burst API/Git khi có nhiều repo
+node dist/cli.js reconcile --owner source-org --delay-ms 750 --api-delay-ms 300
+```
+
+Luồng xử lý:
+
+1. Enumerate repository từ source credential GitHub (`/user/repos`, phân trang 100). Có thể chọn credential bằng `--source <id>`.
+2. Áp dụng `src.filter.repo.exclude`; nếu có commit filter thì đọc message của commit HEAD/default branch và áp dụng `src.filter.commit.exclude`. Worker cũng kiểm tra filter lần nữa, nên event được ghi trực tiếp vào `pending` vẫn không bypass filter.
+3. Đọc refs source bằng `git ls-remote`.
+4. Với mỗi destination đang enabled:
+   - `one-to-one`: so sánh các branch/tag theo `push.include`, `push.exclude`, `push.pushTags`; nếu `deleteMissingRefs=true` thì extra refs ở destination cũng được coi là drift.
+   - `many-to-one`: so sánh Git tree của source commit với subtree tương ứng trong destination. Vì so sánh tree thực tế, nếu destination folder bị sửa tay sau lần sync trước thì reconcile vẫn phát hiện và bù lại, kể cả source SHA không đổi.
+   - repository destination chưa tồn tại được đánh dấu drift; scanner **không tạo repo trực tiếp**.
+5. Chỉ các destination drift được ghi vào `HookEvent.targetDestinations`; event cũng mang `sourceCredentialId` để worker dùng đúng source PAT khi có nhiều credential cùng provider. Scanner enqueue normalized event vào `rtdb.pendingPath`; worker hiện hữu xử lý `pending -> processing -> processed|failed`, destination lock, auto-create, retry, push và state giống listener.
+
+Manual reconcile ghi vào `pendingPath` thay vì giả một raw GitHub webhook vào `webhookPath`. `webhookPath` là input đặc thù GitHub cho bridge; `pendingPath` mới là queue chuẩn hóa chung mà worker production tiêu thụ.
+
+### Các option
+
+| Option | Ý nghĩa |
+| --- | --- |
+| `--source <credential>` | Chỉ dùng một key trong `src.creds`. Hiện discovery manual hỗ trợ source `github`. |
+| `--owner a,b` | Chỉ scan owner/org tương ứng. Nên dùng khi PAT nhìn thấy nhiều repo ngoài phạm vi mirror. |
+| `--repo a,b` | Lọc theo tên repo hoặc `owner/repo`. |
+| `--dest a,b` | Chỉ kiểm tra các destination ID đã chọn. |
+| `--delay-ms <n>` | Nghỉ giữa hai source repo; mặc định 500 ms. |
+| `--api-delay-ms <n>` | Nghỉ giữa page/fallback API call; mặc định 250 ms. |
+| `--dry-run` | Kiểm tra drift nhưng không ghi event vào RTDB. |
+
+Ngoài pacing trên, mỗi Git/API operation vẫn bị giới hạn bởi `runtime.gitTimeoutMs` và `runtime.apiTimeoutMs`. Một RTDB lock `manual-reconcile` có TTL/heartbeat ngăn hai scanner chạy đồng thời và cùng dùng cache reconcile.
+
+GitHub Enterprise có thể thêm URL trên source credential:
+
+```json
+{
+  "src": {
+    "creds": {
+      "github-enterprise": {
+        "type": "github",
+        "token": "${SOURCE_GITHUB_PAT}",
+        "baseUrl": "https://github.example.com",
+        "apiBaseUrl": "https://github.example.com/api/v3"
+      }
+    }
+  }
+}
+```
+
+Giới hạn hiện tại của reconcile: repository nguồn rỗng không có commit SHA sẽ được báo `empty` và chưa thể tạo destination bằng `HookEvent`; discovery source Gitea/Azure chưa được thêm. Xem `MANUAL_RECONCILE_REVIEW.md` để biết các ưu tiên tiếp theo.
+
+## Sync thủ công từ một event có sẵn
 
 Dry-run vẫn clone/fetch/check để phát hiện lỗi, nhưng không create repo thật và không push:
 

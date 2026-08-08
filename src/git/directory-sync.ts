@@ -26,11 +26,17 @@ export interface DirectorySyncOutput {
 }
 
 export async function syncDirectory(input: DirectorySyncInput): Promise<DirectorySyncOutput> {
-  if (await hasSourceCommitMarker(input.destinationWorkspace, input.source.sha, input.directory, input.timeoutMs)) {
+  if (await directoryTreeMatchesCommit(
+    input.destinationWorkspace,
+    input.sourceWorktree,
+    'HEAD',
+    input.directory,
+    input.timeoutMs,
+  )) {
     return {
       status: 'skipped',
       destinationSha: await getHeadSha(input.destinationWorkspace, input.timeoutMs),
-      message: 'Source commit marker already exists.',
+      message: 'Destination directory tree already matches source tree.',
     };
   }
 
@@ -107,6 +113,28 @@ export async function syncDirectory(input: DirectorySyncInput): Promise<Director
     timeoutMs: input.timeoutMs,
   });
   return { status: 'synced', destinationSha: sha, message };
+}
+
+export async function directoryTreeMatchesCommit(
+  destinationWorkspace: string,
+  sourceWorkspace: string,
+  sourceCommit: string,
+  directory: string,
+  timeoutMs: number,
+): Promise<boolean> {
+  const sourceTree = await runGit(['rev-parse', `${sourceCommit}^{tree}`], {
+    cwd: sourceWorkspace,
+    timeoutMs,
+    allowFailure: true,
+  });
+  if (sourceTree.exitCode !== 0) return false;
+  const destinationTree = await runGit(['rev-parse', `HEAD:${directory}`], {
+    cwd: destinationWorkspace,
+    timeoutMs,
+    allowFailure: true,
+  });
+  if (destinationTree.exitCode !== 0) return false;
+  return sourceTree.stdout.trim() === destinationTree.stdout.trim();
 }
 
 export async function removeStaleFiles(target: string): Promise<void> {

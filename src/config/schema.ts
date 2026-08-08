@@ -141,9 +141,13 @@ function parseCredential(value: unknown, path: string, issues: string[]): Creden
   const username = optionalString(object.username, `${path}.username`, issues);
   const headerName = optionalString(object.headerName, `${path}.headerName`, issues);
   const headerValueTemplate = optionalString(object.headerValueTemplate, `${path}.headerValueTemplate`, issues);
+  const baseUrl = optionalString(object.baseUrl, `${path}.baseUrl`, issues);
+  const apiBaseUrl = optionalString(object.apiBaseUrl, `${path}.apiBaseUrl`, issues);
   if (username !== undefined) credential.username = username;
   if (headerName !== undefined) credential.headerName = headerName;
   if (headerValueTemplate !== undefined) credential.headerValueTemplate = headerValueTemplate;
+  if (baseUrl !== undefined) credential.baseUrl = baseUrl.replace(/\/$/, '');
+  if (apiBaseUrl !== undefined) credential.apiBaseUrl = apiBaseUrl.replace(/\/$/, '');
   if (credential.scheme === 'custom' && (!credential.headerName || !credential.headerValueTemplate)) {
     issues.push(`${path}: custom credential requires headerName and headerValueTemplate.`);
   }

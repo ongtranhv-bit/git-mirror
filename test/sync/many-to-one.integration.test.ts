@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { access, readFile } from 'node:fs/promises';
+import { access, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createLogger } from '../../src/shared/logger.js';
 import { processHookEvent } from '../../src/sync/router.js';
@@ -61,4 +61,32 @@ test('many-to-one synchronizes isolated directories, deletes stale files, and sk
   const message = await git(bareDestination, ['log', '-1', '--format=%B', 'refs/heads/main']);
   assert.match(message, new RegExp(`Source-Commit: ${appSha2}`));
   assert.match(message, /Source-Directory: app/);
+});
+
+
+test('many-to-one repairs destination directory drift even when the same source SHA marker already exists', async () => {
+  const root = await tempDirectory();
+  const source = await createSourceRepo(root, 'app-repair', { 'app.txt': 'source-value' });
+  const bareDestination = await createBareRepo(root, 'repair-monorepo');
+  const dest = destination('many-to-one', 'monorepo');
+  const config = baseConfig(resolve(root, 'cache-repair'), { monorepo: dest });
+  const adapter = new FakeProvider('monorepo', dest, fileUrl(bareDestination));
+  const common = {
+    config,
+    instanceId: 'worker-repair',
+    logger: createLogger('error'),
+    adapters: { monorepo: adapter },
+  };
+
+  await processHookEvent({ ...common, hook: hook(source.path, 'app-repair', source.sha, 'repair-1') });
+  const manual = await cloneForRead(root, bareDestination, 'manual-edit');
+  await writeFile(resolve(manual, 'app-repair/app.txt'), 'manual-drift');
+  await git(manual, ['add', '-A']);
+  await git(manual, ['commit', '-m', 'manual destination edit']);
+  await git(manual, ['push', 'origin', 'main']);
+
+  const repaired = await processHookEvent({ ...common, hook: hook(source.path, 'app-repair', source.sha, 'repair-2') });
+  assert.equal(repaired.destinations[0]?.status, 'synced');
+  const readClone = await cloneForRead(root, bareDestination, 'read-repaired');
+  assert.equal(await readFile(resolve(readClone, 'app-repair/app.txt'), 'utf8'), 'source-value');
 });

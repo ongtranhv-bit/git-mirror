@@ -12,6 +12,7 @@ import { toPublicError } from './shared/errors.js';
 import { createLogger } from './shared/logger.js';
 import { processHookEvent } from './sync/router.js';
 import { bridgeOnce, bridgePendingEvents } from './webhook/github-bridge.js';
+import { reconcileRepositories } from './reconcile/manual.js';
 import type { AppConfig, HookEvent } from './types.js';
 import { handleCodespaceCommand, isCodespaceCommand } from './codespace/cli.js';
 import { isHelpRequest, parseCliArgs, type ParsedArgs } from './cli-args.js';
@@ -50,7 +51,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const client = ['run', 'replay', 'webhook:bridge'].includes(parsed.command) ? createRtdbClientFromEnv() : optionalRtdbClient();
+  const client = ['run', 'replay', 'webhook:bridge', 'reconcile'].includes(parsed.command) ? createRtdbClientFromEnv() : optionalRtdbClient();
   const config = await loadCommandConfig(parsed, client);
   const logger = createLogger(config.runtime.logLevel, { service: 'git-mirror' });
 
@@ -88,6 +89,24 @@ async function main(): Promise<void> {
       dryRun: Boolean(parsed.options['dry-run']),
     });
     console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  if (parsed.command === 'reconcile') {
+    if (!client) throw new Error('reconcile requires RTDB credentials.');
+    const result = await reconcileRepositories({
+      config,
+      client,
+      logger,
+      dryRun: Boolean(parsed.options['dry-run']),
+      sourceCredentialId: stringOption(parsed.options, 'source'),
+      owners: csvOption(parsed.options, 'owner'),
+      repos: csvOption(parsed.options, 'repo'),
+      destinations: csvOption(parsed.options, 'dest'),
+      repoDelayMs: numberOption(parsed.options, 'delay-ms', 500),
+      apiDelayMs: numberOption(parsed.options, 'api-delay-ms', 250),
+    });
+    console.log(JSON.stringify(result, null, 2));
+    process.exitCode = result.errors > 0 ? 1 : 0;
     return;
   }
   if (parsed.command === 'replay') {
@@ -176,6 +195,21 @@ function stringOption(options: Record<string, string | boolean>, key: string): s
   return typeof value === 'string' ? value : undefined;
 }
 
+function csvOption(options: Record<string, string | boolean>, key: string): string[] | undefined {
+  const value = stringOption(options, key);
+  if (!value) return undefined;
+  const items = value.split(',').map((item) => item.trim()).filter(Boolean);
+  return items.length > 0 ? items : undefined;
+}
+
+function numberOption(options: Record<string, string | boolean>, key: string, fallback: number): number {
+  const value = stringOption(options, key);
+  if (value === undefined) return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) throw new Error(`--${key} must be a number >= 0.`);
+  return parsed;
+}
+
 function requiredValue<T>(value: T | undefined, message: string): T {
   if (value === undefined || value === '') throw new Error(message);
   return value;
@@ -189,6 +223,7 @@ function printHelp(): void {
   run [--once] [--dry-run] [--bridge]
   webhook:bridge [--once]
   sync --event-file <file> [--dry-run]
+  reconcile [--source <credential>] [--owner <owner[,owner]>] [--repo <repo[,repo]>] [--dest <id[,id]>] [--delay-ms 500] [--api-delay-ms 250] [--dry-run]
   replay --event <eventId>
   config:encode <config.json>
   config:decode <config.b64>

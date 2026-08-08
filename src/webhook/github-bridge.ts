@@ -6,6 +6,7 @@ import { commitMessagesOf, isExcludedCommit, isExcludedRepo } from '../filter.js
 import type { AppConfig, HookEvent, ProviderType } from '../types.js';
 
 interface GithubWebhookDelivery {
+  _bridge?: { consumedAt: number; eventId?: string; skipped?: boolean };
   ref?: string;
   before?: string;
   after?: string;
@@ -44,8 +45,8 @@ export async function bridgeOnce(options: GithubBridgeOptions): Promise<BridgeRu
     (await options.client.get<Record<string, GithubWebhookDelivery>>(options.webhookPath ?? '/github-noti')) ?? {};
   const result: BridgeRunResult = { processed: 0, skipped: 0 };
   for (const [childKey, payload] of Object.entries(deliveries)) {
-    if (typeof payload === 'object' && payload !== null && (payload as { _bridge?: unknown })._bridge) {
-      await options.client.remove(`${options.webhookPath ?? '/github-noti'}/${childKey}`);
+    if (typeof payload === 'object' && payload !== null && payload._bridge) {
+      await recoverClaimedDelivery(options, childKey, payload, result);
       continue;
     }
     await processDelivery(options, childKey, payload, result);
@@ -57,14 +58,23 @@ export function bridgePendingEvents(options: GithubBridgeOptions): {
   stop: () => void;
   idle: () => Promise<void>;
 } {
+  let accepting = true;
+  let chain = Promise.resolve();
   const unsubscribe = options.client.onChildAdded<GithubWebhookDelivery>(
     options.webhookPath ?? '/github-noti',
     (childKey, payload) => {
+      if (!accepting) return;
       const result = { processed: 0, skipped: 0 };
-      return processDelivery(options, childKey, payload, result);
+      chain = chain
+        .then(() => processDelivery(options, childKey, payload, result))
+        .catch((error) => options.logger.error({ childKey, error: toPublicError(error) }, 'webhook.queue_error'));
+      return chain;
     },
   );
-  return { stop: () => unsubscribe(), idle: async () => undefined };
+  return {
+    stop: () => { accepting = false; unsubscribe(); },
+    idle: () => chain,
+  };
 }
 
 async function processDelivery(
@@ -117,8 +127,8 @@ async function processDelivery(
     if (!claimed) return;
     await options.client.update({
       [`${options.config.rtdb.pendingPath}/${event.eventId}`]: event,
+      [childPath]: null,
     });
-    await options.client.remove(childPath);
     result.processed += 1;
     log.info({ eventId: event.eventId, repo: event.repo, ref: event.ref, after: event.after }, 'webhook.event_queued');
   } catch (error) {
@@ -126,11 +136,47 @@ async function processDelivery(
   }
 }
 
+async function recoverClaimedDelivery(
+  options: GithubBridgeOptions,
+  childKey: string,
+  payload: GithubWebhookDelivery,
+  result: BridgeRunResult,
+): Promise<void> {
+  const childPath = `${options.webhookPath ?? '/github-noti'}/${childKey}`;
+  const eventId = payload._bridge?.eventId;
+  if (!eventId) {
+    await options.client.remove(childPath);
+    return;
+  }
+  const event = toHookEvent(payload);
+  if (!event) {
+    await options.client.remove(childPath);
+    result.skipped += 1;
+    return;
+  }
+  const [pending, processing, processed, failed] = await Promise.all([
+    options.client.get(`${options.config.rtdb.pendingPath}/${eventId}`),
+    options.client.get(`${options.config.rtdb.processingPath}/${eventId}`),
+    options.client.get(`${options.config.rtdb.processedPath}/${eventId}`),
+    options.client.get(`${options.config.rtdb.failedPath}/${eventId}`),
+  ]);
+  if (pending !== null || processing !== null || processed !== null || failed !== null) {
+    await options.client.remove(childPath);
+    return;
+  }
+  await options.client.update({
+    [`${options.config.rtdb.pendingPath}/${eventId}`]: event,
+    [childPath]: null,
+  });
+  result.processed += 1;
+  options.logger.warn({ eventId, childKey }, 'webhook.claim_recovered');
+}
+
 async function claimDelivery(options: GithubBridgeOptions, childPath: string, eventId?: string): Promise<boolean> {
   const committed = await options.client.transaction<GithubWebhookDelivery>(
     childPath,
     (current) => {
-      if (!current || typeof current !== 'object' || (current as { _bridge?: unknown })._bridge) return undefined;
+      if (!current || typeof current !== 'object' || current._bridge) return undefined;
       return {
         ...current,
         _bridge: {
@@ -163,6 +209,7 @@ function toHookEvent(payload: GithubWebhookDelivery): HookEvent | null {
     after,
     before: payload.before && !/^0+$/.test(payload.before) ? payload.before : undefined,
     receivedAt: Number.isFinite(receivedAt) ? receivedAt : Date.now(),
+    raw: payload,
   };
   return hookEvent;
 }

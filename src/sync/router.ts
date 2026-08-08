@@ -9,7 +9,7 @@ import type { ProviderAdapter } from '../providers/provider.js';
 import type { RtdbClient } from '../rtdb/client.js';
 import { acquireDestinationLock, refreshLock, releaseDestinationLock } from '../rtdb/locks.js';
 import { saveRepositoryState, saveSyncState } from '../rtdb/state.js';
-import { commitMessagesOf, isExcludedCommit } from '../filter.js';
+import { commitMessagesOf, isExcludedCommit, isExcludedRepo } from '../filter.js';
 import type {
   AppConfig,
   DestinationConfig,
@@ -45,7 +45,19 @@ export function resolveSourceFromHook(config: AppConfig, hook: HookEvent): Sourc
   }
   const [owner, repo, ...rest] = hook.repo.split('/');
   if (!owner || !repo || rest.length > 0) throw new AppError('HOOK_REPO_INVALID', `Hook repo must be owner/name: ${hook.repo}`);
-  const credential = config.src.creds[hook.provider] ?? Object.values(config.src.creds).find((item) => item.type === hook.provider);
+  const explicitCredential = hook.sourceCredentialId ? config.src.creds[hook.sourceCredentialId] : undefined;
+  if (hook.sourceCredentialId && !explicitCredential) {
+    throw new AppError('SOURCE_CREDENTIAL_MISSING', `Source credential ${hook.sourceCredentialId} does not exist.`);
+  }
+  if (explicitCredential && explicitCredential.type !== hook.provider) {
+    throw new AppError(
+      'SOURCE_CREDENTIAL_MISMATCH',
+      `Source credential ${hook.sourceCredentialId} is ${explicitCredential.type}, but hook provider is ${hook.provider}.`,
+    );
+  }
+  const credential = explicitCredential
+    ?? config.src.creds[hook.provider]
+    ?? Object.values(config.src.creds).find((item) => item.type === hook.provider);
   if (!credential) throw new AppError('SOURCE_CREDENTIAL_MISSING', `No source credential configured for ${hook.provider}.`);
   return {
     provider: hook.provider,
@@ -70,36 +82,36 @@ export async function processHookEvent(input: {
 }): Promise<SyncEventResult> {
   const startedAt = Date.now();
   const source = resolveSourceFromHook(input.config, input.hook);
+  const destinationEntries = resolveDestinationEntries(input.config, input.hook.targetDestinations);
+  const repoFilterMatch = isExcludedRepo(source.repo, input.config.src.filter);
+  if (repoFilterMatch.matched) {
+    return skippedByFilterResult({
+      hook: input.hook,
+      source,
+      startedAt,
+      instanceId: input.instanceId,
+      destinations: destinationEntries,
+      code: 'REPO_FILTERED',
+      message: `Repository excluded by filter (${repoFilterMatch.rule?.mode}: ${repoFilterMatch.rule?.value}); skipping sync.`,
+    });
+  }
   const filterMatch = isExcludedCommit(commitMessagesOf(input.hook.raw), input.config.src.filter);
   if (filterMatch.matched) {
-    return {
-      eventId: input.hook.eventId,
-      sourceRepo: source.fullName,
-      sourceSha: source.sha,
+    return skippedByFilterResult({
+      hook: input.hook,
+      source,
       startedAt,
-      completedAt: Date.now(),
       instanceId: input.instanceId,
-      destinations: Object.entries(input.config.dest).map(([destinationId, destination]) => ({
-        destinationId,
-        provider: destination.type,
-        mode: destination.mode,
-        repo: render(destination.repo, source),
-        sourceSha: source.sha,
-        status: 'skipped' as const,
-        durationMs: 0,
-        error: {
-          code: 'COMMIT_FILTERED',
-          message: `Commit message excluded by filter (${filterMatch.rule?.mode}: ${filterMatch.rule?.value}); skipping sync.`,
-          retryable: false,
-        },
-      })),
-    };
+      destinations: destinationEntries,
+      code: 'COMMIT_FILTERED',
+      message: `Commit message excluded by filter (${filterMatch.rule?.mode}: ${filterMatch.rule?.value}); skipping sync.`,
+    });
   }
   const workdir = resolve(input.config.runtime.workdir, 'instances', input.instanceId);
   const sourceWorkspace = await ensureSourceWorkspace(source, workdir, input.config.runtime.gitTimeoutMs);
   const destinations: DestinationResult[] = [];
 
-  for (const [destinationId, destination] of Object.entries(input.config.dest)) {
+  for (const [destinationId, destination] of destinationEntries) {
     const destinationStarted = Date.now();
     if (destination.enabled === false) {
       destinations.push({
@@ -183,6 +195,52 @@ export async function processHookEvent(input: {
   return result;
 }
 
+function resolveDestinationEntries(
+  config: AppConfig,
+  targets: string[] | undefined,
+): Array<[string, DestinationConfig]> {
+  if (!targets) return Object.entries(config.dest);
+  const unique = [...new Set(targets.map((item) => item.trim()).filter(Boolean))];
+  if (unique.length === 0) throw new AppError('HOOK_TARGET_INVALID', 'targetDestinations must contain at least one destination id.');
+  const entries: Array<[string, DestinationConfig]> = [];
+  for (const id of unique) {
+    const destination = config.dest[id];
+    if (!destination) throw new AppError('HOOK_TARGET_INVALID', `Unknown target destination: ${id}.`);
+    entries.push([id, destination]);
+  }
+  return entries;
+}
+
+function skippedByFilterResult(input: {
+  hook: HookEvent;
+  source: SourceRepository;
+  startedAt: number;
+  instanceId: string;
+  destinations: Array<[string, DestinationConfig]>;
+  code: string;
+  message: string;
+}): SyncEventResult {
+  return {
+    eventId: input.hook.eventId,
+    sourceRepo: input.source.fullName,
+    sourceSha: input.source.sha,
+    startedAt: input.startedAt,
+    completedAt: Date.now(),
+    instanceId: input.instanceId,
+    destinations: input.destinations.map(([destinationId, destination]) => ({
+      destinationId,
+      provider: destination.type,
+      mode: destination.mode,
+      repo: render(destination.repo, input.source),
+      directory: destination.mode === 'many-to-one' ? resolveDirectory(destination, input.source) : undefined,
+      sourceSha: input.source.sha,
+      status: 'skipped',
+      durationMs: 0,
+      error: { code: input.code, message: input.message, retryable: false },
+    })),
+  };
+}
+
 async function processDestination(input: {
   config: AppConfig;
   hook: HookEvent;
@@ -217,7 +275,8 @@ async function processDestination(input: {
     if (!locked) throw new AppError('DESTINATION_LOCKED', `Destination is locked: ${lockKey}`, { retryable: true });
     const lockPath = `${input.config.rtdb.locksPath}/${sanitizeRtdbKey(lockKey)}`;
     lockHeartbeat = setInterval(
-      () => void refreshLock(input.rtdb!, lockPath, input.instanceId, input.config.runtime.lockTtlSeconds),
+      () => void refreshLock(input.rtdb!, lockPath, input.instanceId, input.config.runtime.lockTtlSeconds)
+        .catch((error) => input.logger.warn({ destinationId: input.destinationId, error: toPublicError(error) }, 'destination.lock_heartbeat_failed')),
       Math.max(1_000, Math.floor((input.config.runtime.lockTtlSeconds * 1_000) / 3)),
     );
     lockHeartbeat.unref();
@@ -251,7 +310,11 @@ async function processDestination(input: {
   } finally {
     if (lockHeartbeat) clearInterval(lockHeartbeat);
     if (input.rtdb && locked) {
-      await releaseDestinationLock(input.rtdb, input.config.rtdb.locksPath, lockKey, input.instanceId);
+      try {
+        await releaseDestinationLock(input.rtdb, input.config.rtdb.locksPath, lockKey, input.instanceId);
+      } catch (error) {
+        input.logger.warn({ destinationId: input.destinationId, error: toPublicError(error) }, 'destination.lock_release_failed');
+      }
     }
   }
 }

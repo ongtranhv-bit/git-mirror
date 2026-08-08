@@ -50,13 +50,14 @@ export async function processPendingEvent(
   );
   if (!claimed) return false;
 
+  const event: HookEvent = { ...payload, eventId } as HookEvent;
+  const log = options.logger.child({ eventId, instanceId: options.instanceId });
   const heartbeat = setInterval(
-    () => void refreshLock(options.client, `${options.paths.processingPath}/${eventId}`, options.instanceId, options.lockTtlSeconds),
+    () => void refreshLock(options.client, `${options.paths.processingPath}/${eventId}`, options.instanceId, options.lockTtlSeconds)
+      .catch((error) => log.warn({ error: toPublicError(error) }, 'event.lock_heartbeat_failed')),
     Math.max(1_000, Math.floor((options.lockTtlSeconds * 1_000) / 3)),
   );
   heartbeat.unref();
-  const event: HookEvent = { ...payload, eventId } as HookEvent;
-  const log = options.logger.child({ eventId, instanceId: options.instanceId });
   log.info({}, 'event.claimed');
   try {
     const result = await options.handler(event);

@@ -106,12 +106,14 @@ export async function runWorker(input: {
     shutdown = createShutdownController();
     keepalive = startCodespaceKeepalive({ config: input.config.runtime.codespaceKeepalive, logger: input.logger });
     reaper = setInterval(
-      () => void recoverExpiredJobs(input.client, input.config.rtdb),
+      () => void recoverExpiredJobs(input.client, input.config.rtdb)
+        .catch((error) => input.logger.warn({ error: toPublicError(error) }, 'event.reaper_failed')),
       Math.max(5_000, input.config.runtime.heartbeatSeconds * 1_000),
     );
     reaper.unref();
     cleaner = setInterval(
-      () => void cleanupOldEvents(input.client, input.config.rtdb, input.config.rtdb.retentionDays),
+      () => void cleanupOldEvents(input.client, input.config.rtdb, input.config.rtdb.retentionDays)
+        .catch((error) => input.logger.warn({ error: toPublicError(error) }, 'event.cleanup_failed')),
       Math.max(60_000, 6 * 60 * 60 * 1_000),
     );
     cleaner.unref();

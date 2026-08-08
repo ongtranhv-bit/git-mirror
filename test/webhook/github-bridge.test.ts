@@ -5,6 +5,7 @@ import { MemoryRtdbClient } from '../../src/rtdb/memory-client.js';
 import { createLogger } from '../../src/shared/logger.js';
 import { baseConfig } from '../helpers.js';
 import type { AppConfig } from '../../src/types.js';
+import { stableHash } from '../../src/shared/paths.js';
 
 const WEBHOOK_PATH = '/github-noti';
 
@@ -81,4 +82,20 @@ test('bridge applies repo filters to repository.name, not repository.full_name',
   assert.equal(secondResult.processed, 0);
   assert.equal(secondResult.skipped, 1);
   assert.equal(await client.get(`${WEBHOOK_PATH}/repo-must-match`), null);
+});
+
+
+test('bridge recovers a claimed delivery after restart when pending handoff never completed', async () => {
+  const client = new MemoryRtdbClient();
+  const config = baseConfig('/tmp/test', {});
+  const key = 'claimed-recover';
+  const after = 'f'.repeat(40);
+  const payload = pushPayload('org/app', after, 'feat: recover');
+  const eventId = `gh-${stableHash(`org/app:refs/heads/main:${after}`)}`;
+  await client.set(`${WEBHOOK_PATH}/${key}`, { ...payload, _bridge: { consumedAt: Date.now(), eventId } });
+  const result = await bridgeOnce(optionsFor(client, config));
+  assert.equal(result.processed, 1);
+  assert.equal(await client.get(`${WEBHOOK_PATH}/${key}`), null);
+  const pending = await client.get<Record<string, unknown>>(config.rtdb.pendingPath);
+  assert.ok(pending?.[eventId]);
 });

@@ -8,6 +8,8 @@ export interface CredentialConfig {
   username?: string;
   headerName?: string;
   headerValueTemplate?: string;
+  baseUrl?: string;
+  apiBaseUrl?: string;
 }
 
 export interface AutoCreateConfig {
@@ -124,6 +126,7 @@ export interface SourceConfig {
 export interface HookEvent {
   eventId: string;
   provider: ProviderType;
+  sourceCredentialId?: string;
   repo: string;
   url: string;
   ref: string;
@@ -131,6 +134,7 @@ export interface HookEvent {
   before?: string;
   receivedAt: number;
   raw?: unknown;
+  targetDestinations?: string[];
 }
 
 export interface SourceRepository {

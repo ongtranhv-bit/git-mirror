@@ -37,3 +37,29 @@ test('one-to-one sync pushes branches, tags and history to a local bare destinat
   const count = Number(await git(bareDestination, ['rev-list', '--count', 'refs/heads/main']));
   assert.equal(count, 1);
 });
+
+
+test('one-to-one deleteMissingRefs removes stale destination refs covered by push policy', async () => {
+  const root = await tempDirectory();
+  const source = await createSourceRepo(root, 'prune-app', { 'app.txt': 'hello' });
+  const bareDestination = await createBareRepo(root, 'prune-mirror');
+  await git(source.path, ['remote', 'add', 'seed', fileUrl(bareDestination)]);
+  await git(source.path, ['branch', 'stale']);
+  await git(source.path, ['push', 'seed', 'refs/heads/main:refs/heads/main', 'refs/heads/stale:refs/heads/stale']);
+  await git(source.path, ['branch', '-D', 'stale']);
+
+  const dest = destination('one-to-one');
+  dest.push.deleteMissingRefs = true;
+  const config = baseConfig(resolve(root, 'cache-prune'), { mirror: dest });
+  const adapter = new FakeProvider('mirror', dest, fileUrl(bareDestination));
+  await processHookEvent({
+    config,
+    hook: hook(source.path, 'prune-app', source.sha, 'prune-event'),
+    instanceId: 'worker-prune',
+    logger: createLogger('error'),
+    adapters: { mirror: adapter },
+  });
+
+  const stale = await git(bareDestination, ['show-ref', '--verify', '--quiet', 'refs/heads/stale']).then(() => true, () => false);
+  assert.equal(stale, false);
+});

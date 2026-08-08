@@ -102,6 +102,7 @@ repo:check [--event-file <file>]
 repo:init [--event-file <file>] [--dry-run]
 run [--once] [--dry-run]
 sync --event-file <file> [--dry-run]
+reconcile [--source <credential>] [--owner <owner[,owner]>] [--repo <repo[,repo]>] [--dest <id[,id]>] [--delay-ms 500] [--api-delay-ms 250] [--dry-run]
 replay --event <eventId>
 config:encode <config.json>
 config:decode <config.b64>
@@ -115,6 +116,7 @@ codespace:config:encode | codespace:config:push
 
 - `run --bridge`: Chạy worker + bridge trong1 process - vừa lắng nghe webhook vừa sync.
 - `webhook:bridge`: Chỉ chạy bridge, đọc delivery webhook từ RTDB (path cấu hình qua `rtdb.webhookPath`, mặc định `/github-noti`), chuyển event push sang `/sync/events/pending`.
+- `reconcile`: Quét tất cả repository nguồn GitHub mà source credential nhìn thấy, áp dụng filter, so sánh với từng destination và chỉ enqueue các destination đang thiếu/lệch vào `rtdb.pendingPath`. Worker hiện hữu mới thực hiện create/push, nên manual reconcile đi chung lock/retry/state/processed-failed với listener.
 
 Chi tiết trong [`USAGE.md`](USAGE.md), triển khai trong [`DEPLOY.md`](DEPLOY.md), rotation trong [`docs/CODESPACE_ROTATION.md`](docs/CODESPACE_ROTATION.md), xử lý lỗi trong [`ERROR.md`](ERROR.md).
 
@@ -144,7 +146,7 @@ Implementation guide đề xuất Zod, firebase-admin, simple-git, pino, p-queue
 - Push xóa branch có `after` toàn số 0 chưa được hỗ trợ cho many-to-one.
 - Git LFS, wiki, issue, PR, release và full-history many-to-one ngoài phase này.
 - Provider `custom` có schema credential nhưng chưa có adapter tạo repo.
-- `repo:init` không thể tự liệt kê repo động `{sourceRepo}` vì schema v6 không lưu danh sách source; cần `--event-file`, hoặc listener tự tạo khi nhận hook.
+- `repo:init` vẫn cần `--event-file` để resolve repo động `{sourceRepo}`. Lệnh `reconcile` đã bổ sung discovery động cho source GitHub và có thể enqueue các repo/destination thiếu mà không cần event file; nên dùng `--owner` để giới hạn phạm vi PAT.
 - RTDB Emulator và Gitea Docker smoke test không áp dụng; đã verified GitHub destination live với Docker (3 containers) và node-native. Gitea/Azure destinations unreachable.
 - Codespace Rotation đã local/unit verified nhưng chưa live-verify Codespaces API, multi-account ownership, Codespaces secret policy hoặc scheduled GitHub Actions bằng credential thật.
 

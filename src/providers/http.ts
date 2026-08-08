@@ -21,10 +21,17 @@ export async function requestJson<T>(
       }
     }
     if (!expected.includes(response.status)) {
+      const retryAfterMs = retryDelayFromHeaders(response.headers);
+      const rateLimited = response.status === 429
+        || (response.status === 403 && (retryAfterMs !== undefined || response.headers.get('x-ratelimit-remaining') === '0'));
       throw new AppError('PROVIDER_HTTP_ERROR', `Provider API returned HTTP ${response.status}: ${redactSecrets(text)}`, {
         status: response.status,
-        retryable: response.status >= 500 || response.status === 408 || response.status === 429,
-        context: { status: response.status, url: redactUrl(url) },
+        retryable: response.status >= 500 || response.status === 408 || rateLimited,
+        context: {
+          status: response.status,
+          url: redactUrl(url),
+          ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+        },
       });
     }
     return { status: response.status, body, headers: response.headers };
@@ -55,4 +62,19 @@ function redactUrl(value: string): string {
   } catch {
     return '[invalid-url]';
   }
+}
+
+function retryDelayFromHeaders(headers: Headers): number | undefined {
+  const retryAfter = headers.get('retry-after');
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1_000;
+    const timestamp = Date.parse(retryAfter);
+    if (Number.isFinite(timestamp)) return Math.max(0, timestamp - Date.now());
+  }
+  const reset = Number(headers.get('x-ratelimit-reset'));
+  if (Number.isFinite(reset) && reset > 0 && headers.get('x-ratelimit-remaining') === '0') {
+    return Math.max(0, reset * 1_000 - Date.now());
+  }
+  return undefined;
 }

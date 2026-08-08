@@ -137,7 +137,6 @@ export async function ensureDestinationWorkspace(
     cwd: workspace,
     credential,
     timeoutMs,
-    allowFailure: true,
   });
   await checkoutDestinationBranch(workspace, branch, timeoutMs);
   return workspace;
