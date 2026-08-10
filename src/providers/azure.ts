@@ -14,7 +14,11 @@ interface AzureRepositoryResponse {
 }
 
 interface AzureCommitsResponse {
-  value?: Array<{ comment?: string }>;
+  value?: Array<{ commitId?: string; comment?: string; commentTruncated?: boolean }>;
+}
+
+interface AzureCommitResponse {
+  comment?: string;
 }
 
 function stripUrlUserinfo(value: string): string {
@@ -116,7 +120,14 @@ export class AzureProvider implements ProviderAdapter {
       if (response.status !== 200) break;
       const items = response.body?.value ?? [];
       for (const item of items) {
-        if (item?.comment) messages.push(item.comment);
+        let comment = item?.comment;
+        if (item?.commentTruncated) {
+          comment = await this.fetchFullCommitMessage(input, item.commitId);
+        }
+        if (comment) {
+          messages.push(comment);
+          if (input.searchFor && comment.includes(input.searchFor)) return messages;
+        }
         if (messages.length >= input.maxCount) break;
       }
       if (items.length === 0 || items.length < 100) break;
@@ -124,6 +135,24 @@ export class AzureProvider implements ProviderAdapter {
       if ((input.apiDelayMs ?? 0) > 0) await delay(input.apiDelayMs);
     }
     return messages;
+  }
+
+  private async fetchFullCommitMessage(input: ListBranchCommitsInput, commitId?: string): Promise<string | undefined> {
+    if (!commitId) return undefined;
+    const project = input.locator.project ?? this.config.project;
+    if (!project) throw new AppError('CONFIG_INVALID', 'Azure commit lookup requires project.');
+    const url = new URL(
+      `${this.repositoriesUrl(input.locator.org, project)}/${encodeURIComponent(input.locator.repo)}/commits/${encodeURIComponent(commitId)}`,
+    );
+    url.searchParams.set('api-version', '7.1');
+    const response = await requestJsonWithRetry<AzureCommitResponse>(url.toString(), {
+      method: 'GET',
+      headers: this.headers(),
+      timeoutMs: this.timeoutMs,
+      expected: [200, 404],
+    });
+    if ((input.apiDelayMs ?? 0) > 0) await delay(input.apiDelayMs);
+    return response.status === 200 ? response.body?.comment : undefined;
   }
 
   private repositoriesUrl(org: string, project: string): string {

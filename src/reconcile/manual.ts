@@ -318,6 +318,7 @@ async function reconcileRepository(input: {
             path: directory,
             maxCount: RECONCILE_COMMIT_SCAN_LIMIT,
             apiDelayMs: input.apiDelayMs,
+            searchFor: marker,
           });
           if (messages.some((message) => message.includes(marker))) {
             recordDestination({ destinationId, status: 'in-sync' });

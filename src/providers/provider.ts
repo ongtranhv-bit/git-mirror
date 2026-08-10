@@ -11,6 +11,7 @@ export interface ListBranchCommitsInput {
   path: string;
   maxCount: number;
   apiDelayMs?: number;
+  searchFor?: string;
 }
 
 export interface ProviderAdapter {

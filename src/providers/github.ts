@@ -99,7 +99,10 @@ export class GitHubProvider implements ProviderAdapter {
       if (response.status !== 200) break;
       const items = response.body ?? [];
       for (const item of items) {
-        if (item?.commit?.message) messages.push(item.commit.message);
+        if (item?.commit?.message) {
+          messages.push(item.commit.message);
+          if (input.searchFor && item.commit.message.includes(input.searchFor)) return messages;
+        }
         if (messages.length >= input.maxCount) break;
       }
       if (items.length < 100) break;
