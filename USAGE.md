@@ -215,7 +215,7 @@ Luồng xử lý:
 3. Đọc refs source bằng `git ls-remote`.
 4. Với mỗi destination đang enabled:
    - `one-to-one`: so sánh các branch/tag theo `push.include`, `push.exclude`, `push.pushTags`; nếu `deleteMissingRefs=true` thì extra refs ở destination cũng được coi là drift.
-   - `many-to-one`: so sánh Git tree của source commit với subtree tương ứng trong destination. Vì so sánh tree thực tế, nếu destination folder bị sửa tay sau lần sync trước thì reconcile vẫn phát hiện và bù lại, kể cả source SHA không đổi.
+   - `many-to-one`: kiểm tra bằng **commit marker qua API**. Mỗi lần sync, destination nhận một commit có git trailer chứa `{{sourceSha}}` (mặc định `Source-Commit`). Nếu commit mới nhất của source xuất hiện trong message các commit gần đây của destination branch (filter theo thư mục `directory`), destination được coi là **in-sync**; ngược lại là **drift**. Không clone repo nào. Nếu config của destination **không** có trailer chứa `{{sourceSha}}`, fallback về so sánh Git tree như cũ (cần clone workspace).
    - repository destination chưa tồn tại được đánh dấu drift; scanner **không tạo repo trực tiếp**.
 5. Chỉ các destination drift được ghi vào `HookEvent.targetDestinations`; event cũng mang `sourceCredentialId` để worker dùng đúng source PAT khi có nhiều credential cùng provider. Scanner enqueue normalized event vào `rtdb.pendingPath`; worker hiện hữu xử lý `pending -> processing -> processed|failed`, destination lock, auto-create, retry, push và state giống listener.
 
@@ -233,7 +233,7 @@ Manual reconcile ghi vào `pendingPath` thay vì giả một raw GitHub webhook 
 | `--api-delay-ms <n>` | Nghỉ giữa page/fallback API call; mặc định 250 ms. |
 | `--dry-run` | Kiểm tra drift nhưng không ghi event vào RTDB. |
 
-Ngoài pacing trên, mỗi Git/API operation vẫn bị giới hạn bởi `runtime.gitTimeoutMs` và `runtime.apiTimeoutMs`. Một RTDB lock `manual-reconcile` có TTL/heartbeat ngăn hai scanner chạy đồng thời và cùng dùng cache reconcile.
+Ngoài pacing trên, mỗi Git/API operation vẫn bị giới hạn bởi `runtime.gitTimeoutMs` và `runtime.apiTimeoutMs`. Các API call liệt kê commit (GitHub/Gitea/Azure) tự retry tối đa 3 lần khi bị rate limit (429), tôn trọng `Retry-After`, và nghỉ `--api-delay-ms` giữa các page. Một RTDB lock `manual-reconcile` có TTL/heartbeat ngăn hai scanner chạy đồng thời và cùng dùng cache reconcile.
 
 GitHub Enterprise có thể thêm URL trên source credential:
 

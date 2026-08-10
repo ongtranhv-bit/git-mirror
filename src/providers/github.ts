@@ -1,8 +1,9 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import { apiHeaders } from '../git/auth.js';
 import { AppError } from '../shared/errors.js';
 import type { DestinationConfig, RemoteRepository, RepoLocator } from '../types.js';
-import { requestJson } from './http.js';
-import type { CreateRepoInput, ProviderAdapter } from './provider.js';
+import { requestJson, requestJsonWithRetry } from './http.js';
+import type { CreateRepoInput, ListBranchCommitsInput, ProviderAdapter } from './provider.js';
 
 interface GitHubRepositoryResponse {
   id: number;
@@ -10,6 +11,10 @@ interface GitHubRepositoryResponse {
   clone_url: string;
   html_url: string;
   owner: { login: string };
+}
+
+interface GitHubCommitListItem {
+  commit?: { message?: string };
 }
 
 export class GitHubProvider implements ProviderAdapter {
@@ -73,6 +78,34 @@ export class GitHubProvider implements ProviderAdapter {
   resolveCloneUrl(input: RepoLocator): string {
     const host = this.config.baseUrl?.replace(/\/$/, '') ?? 'https://github.com';
     return `${host}/${input.org}/${input.repo}.git`;
+  }
+
+  async listBranchCommitMessages(input: ListBranchCommitsInput): Promise<string[]> {
+    const messages: string[] = [];
+    for (let page = 1; ; page += 1) {
+      const remaining = input.maxCount - messages.length;
+      if (remaining <= 0) break;
+      const url = new URL(`${this.apiBase}/repos/${encodeURIComponent(input.locator.org)}/${encodeURIComponent(input.locator.repo)}/commits`);
+      url.searchParams.set('sha', input.branch);
+      url.searchParams.set('path', input.path);
+      url.searchParams.set('per_page', String(Math.min(remaining, 100)));
+      url.searchParams.set('page', String(page));
+      const response = await requestJsonWithRetry<GitHubCommitListItem[]>(url.toString(), {
+        method: 'GET',
+        headers: this.headers(),
+        timeoutMs: this.timeoutMs,
+        expected: [200, 404, 409],
+      });
+      if (response.status !== 200) break;
+      const items = response.body ?? [];
+      for (const item of items) {
+        if (item?.commit?.message) messages.push(item.commit.message);
+        if (messages.length >= input.maxCount) break;
+      }
+      if (items.length < 100) break;
+      if ((input.apiDelayMs ?? 0) > 0) await delay(input.apiDelayMs);
+    }
+    return messages;
   }
 
 

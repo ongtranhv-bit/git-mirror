@@ -1,8 +1,9 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import { apiHeaders } from '../git/auth.js';
 import { AppError } from '../shared/errors.js';
 import type { DestinationConfig, RemoteRepository, RepoLocator } from '../types.js';
-import { requestJson } from './http.js';
-import type { CreateRepoInput, ProviderAdapter } from './provider.js';
+import { requestJson, requestJsonWithRetry } from './http.js';
+import type { CreateRepoInput, ListBranchCommitsInput, ProviderAdapter } from './provider.js';
 
 interface AzureRepositoryResponse {
   id: string;
@@ -10,6 +11,10 @@ interface AzureRepositoryResponse {
   remoteUrl: string;
   webUrl: string;
   project: { id: string; name: string };
+}
+
+interface AzureCommitsResponse {
+  value?: Array<{ comment?: string }>;
 }
 
 function stripUrlUserinfo(value: string): string {
@@ -84,6 +89,41 @@ export class AzureProvider implements ProviderAdapter {
     const project = input.project ?? this.config.project;
     if (!project) throw new AppError('CONFIG_INVALID', 'Azure clone URL requires project.');
     return `${this.baseUrl}/${input.org}/${project}/_git/${input.repo}`;
+  }
+
+  async listBranchCommitMessages(input: ListBranchCommitsInput): Promise<string[]> {
+    const project = input.locator.project ?? this.config.project;
+    if (!project) throw new AppError('CONFIG_INVALID', 'Azure commit lookup requires project.');
+    const messages: string[] = [];
+    let skip = 0;
+    for (;;) {
+      const remaining = input.maxCount - messages.length;
+      if (remaining <= 0) break;
+      const url = new URL(
+        `${this.repositoriesUrl(input.locator.org, project)}/${encodeURIComponent(input.locator.repo)}/commits`,
+      );
+      url.searchParams.set('api-version', '7.1');
+      url.searchParams.set('$top', String(Math.min(remaining, 100)));
+      url.searchParams.set('searchCriteria.itemVersion.version', input.branch);
+      url.searchParams.set('searchCriteria.itemPath', input.path);
+      url.searchParams.set('searchCriteria.$skip', String(skip));
+      const response = await requestJsonWithRetry<AzureCommitsResponse>(url.toString(), {
+        method: 'GET',
+        headers: this.headers(),
+        timeoutMs: this.timeoutMs,
+        expected: [200, 404],
+      });
+      if (response.status !== 200) break;
+      const items = response.body?.value ?? [];
+      for (const item of items) {
+        if (item?.comment) messages.push(item.comment);
+        if (messages.length >= input.maxCount) break;
+      }
+      if (items.length === 0 || items.length < 100) break;
+      skip += items.length;
+      if ((input.apiDelayMs ?? 0) > 0) await delay(input.apiDelayMs);
+    }
+    return messages;
   }
 
   private repositoriesUrl(org: string, project: string): string {

@@ -1,10 +1,31 @@
 import { AppError } from '../shared/errors.js';
 import { redactSecrets } from '../shared/logger.js';
+import { withRetry } from '../shared/retry.js';
+
+export interface JsonResponse<T> {
+  status: number;
+  body: T | null;
+  headers: Headers;
+}
+
+export async function requestJsonWithRetry<T>(
+  url: string,
+  options: RequestInit & { timeoutMs: number; expected?: number[] },
+  retries = 3,
+): Promise<JsonResponse<T>> {
+  return withRetry(
+    () => requestJson<T>(url, options),
+    {
+      retries,
+      backoffMs: 500,
+    },
+  );
+}
 
 export async function requestJson<T>(
   url: string,
   options: RequestInit & { timeoutMs: number; expected?: number[] },
-): Promise<{ status: number; body: T | null; headers: Headers }> {
+): Promise<JsonResponse<T>> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), options.timeoutMs);
   timer.unref();

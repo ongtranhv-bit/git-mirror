@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { runCommand } from '../src/shared/exec.js';
 import type { AppConfig, DestinationConfig, HookEvent, RemoteRepository, RepoLocator } from '../src/types.js';
-import type { CreateRepoInput, ProviderAdapter } from '../src/providers/provider.js';
+import type { CreateRepoInput, ListBranchCommitsInput, ProviderAdapter } from '../src/providers/provider.js';
 
 process.env.ALLOW_FILE_GIT_URLS = '1';
 
@@ -170,6 +170,9 @@ export class FakeProvider implements ProviderAdapter {
   }
   async createRepository(input: CreateRepoInput): Promise<RemoteRepository> {
     return { ...this.repository, ...input, created: true };
+  }
+  async listBranchCommitMessages(_input: ListBranchCommitsInput): Promise<string[]> {
+    return [];
   }
   resolveCloneUrl(_input: RepoLocator): string {
     return this.repository.cloneUrl;

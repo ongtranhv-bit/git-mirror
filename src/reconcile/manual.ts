@@ -13,8 +13,10 @@ import { acquireDestinationLock, isLockStale, refreshLock, releaseDestinationLoc
 import { AppError, toPublicError } from '../shared/errors.js';
 import type { Logger } from '../shared/logger.js';
 import { isSameRepository, render, resolveDirectory } from '../sync/router.js';
-import type { AppConfig, DestinationConfig, HookEvent, RepoLocator, SourceRepository } from '../types.js';
+import type { AppConfig, CommitConfig, DestinationConfig, HookEvent, RepoLocator, SourceRepository } from '../types.js';
 import { discoverGithubRepositories, getGithubCommitMessage, type DiscoveredSourceRepository } from './github-source.js';
+
+const RECONCILE_COMMIT_SCAN_LIMIT = 200;
 
 export interface DestinationDrift {
   destinationId: string;
@@ -307,12 +309,30 @@ async function reconcileRepository(input: {
           continue;
         }
 
+        const directory = resolveDirectory(destination, source);
+        const marker = sourceCommitMarker(destination.commit, source, directory);
+        if (marker) {
+          const messages = await adapter.listBranchCommitMessages({
+            locator,
+            branch: destination.branch,
+            path: directory,
+            maxCount: RECONCILE_COMMIT_SCAN_LIMIT,
+            apiDelayMs: input.apiDelayMs,
+          });
+          if (messages.some((message) => message.includes(marker))) {
+            recordDestination({ destinationId, status: 'in-sync' });
+          } else {
+            recordDestination({ destinationId, status: 'drift', reason: 'source-commit-not-synced' });
+            drifted.push(destinationId);
+          }
+          continue;
+        }
+
         sourceWorkspace ??= await ensureSourceWorkspace(
           source,
           resolve(input.config.runtime.workdir, 'reconcile'),
           input.config.runtime.gitTimeoutMs,
         );
-        const directory = resolveDirectory(destination, source);
         const workspaceKey = `${destinationId}:${cloneUrl}:${destination.branch}`;
         let destinationWorkspacePromise = input.destinationWorkspaceCache.get(workspaceKey);
         if (!destinationWorkspacePromise) {
@@ -392,6 +412,27 @@ function locatorFor(destination: DestinationConfig, source: SourceRepository): R
     repo: render(destination.repo, source),
     ...(destination.project ? { project: render(destination.project, source) } : {}),
   };
+}
+
+function sourceCommitMarker(commit: CommitConfig, source: SourceRepository, directory: string): string | undefined {
+  const entry = Object.entries(commit.trailers).find(([, template]) => template.includes('{{sourceSha}}'));
+  if (!entry) return undefined;
+  const [key, template] = entry;
+  const values: Record<string, string> = {
+    prefix: commit.messagePrefix,
+    sourceOwner: source.owner,
+    sourceRepo: source.repo,
+    sourceRef: source.ref,
+    sourceBranch: source.ref.replace(/^refs\/heads\//, ''),
+    sourceSha: source.sha,
+    sourceShortSha: source.sha.slice(0, 12),
+    sourceDirectory: directory,
+  };
+  return `${key}: ${renderCommitTemplate(template, values)}`;
+}
+
+function renderCommitTemplate(template: string, values: Record<string, string>): string {
+  return template.replace(/\{\{([A-Za-z0-9_]+)\}\}/g, (_match, key: string) => values[key] ?? '');
 }
 
 function compareOneToOne(
