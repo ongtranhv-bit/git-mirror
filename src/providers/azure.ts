@@ -120,8 +120,11 @@ export class AzureProvider implements ProviderAdapter {
       if (response.status !== 200) break;
       const items = response.body?.value ?? [];
       for (const item of items) {
-        let comment = item?.comment;
-        if (item?.commentTruncated) {
+        const listed = item?.comment;
+        const truncated = item?.commentTruncated === true
+          || (Boolean(input.searchFor) && typeof listed === 'string' && !listed.includes('Source-Commit:'));
+        let comment = listed;
+        if (truncated) {
           comment = await this.fetchFullCommitMessage(input, item.commitId);
         }
         if (comment) {
