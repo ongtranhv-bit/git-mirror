@@ -100,6 +100,7 @@ async function main(): Promise<void> {
       dryRun: Boolean(parsed.options['dry-run']),
       sourceCredentialId: stringOption(parsed.options, 'source'),
       owners: csvOption(parsed.options, 'owner'),
+      orgs: csvOption(parsed.options, 'orgs'),
       repos: csvOption(parsed.options, 'repo'),
       destinations: csvOption(parsed.options, 'dest'),
       repoDelayMs: numberOption(parsed.options, 'delay-ms', 500),
@@ -198,7 +199,7 @@ function stringOption(options: Record<string, string | boolean>, key: string): s
 function csvOption(options: Record<string, string | boolean>, key: string): string[] | undefined {
   const value = stringOption(options, key);
   if (!value) return undefined;
-  const items = value.split(',').map((item) => item.trim()).filter(Boolean);
+  const items = [...new Set(value.split(',').map((item) => item.trim()).filter(Boolean))];
   return items.length > 0 ? items : undefined;
 }
 
@@ -223,7 +224,7 @@ function printHelp(): void {
   run [--once] [--dry-run] [--bridge]
   webhook:bridge [--once]
   sync --event-file <file> [--dry-run]
-  reconcile [--source <credential>] [--owner <owner[,owner]>] [--repo <repo[,repo]>] [--dest <id[,id]>] [--delay-ms 500] [--api-delay-ms 250] [--dry-run]
+  reconcile [--source <credential>] [--orgs <org[,org]>] [--owner <owner[,owner]>] [--repo <repo[,repo]>] [--dest <id[,id]>] [--delay-ms 500] [--api-delay-ms 250] [--dry-run]
   replay --event <eventId>
   config:encode <config.json>
   config:decode <config.b64>

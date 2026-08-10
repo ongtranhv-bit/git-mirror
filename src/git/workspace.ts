@@ -47,7 +47,7 @@ export async function ensureSourceWorkspace(
     }
   }
   if (!(await pathExists(workspace))) {
-    await runGit(['clone', '--mirror', source.url, workspace], {
+    await runGit(['clone', '--mirror', '--filter=blob:none', source.url, workspace], {
       cwd: dirname(workspace),
       credential: source.credential,
       timeoutMs,
@@ -130,7 +130,7 @@ export async function ensureDestinationWorkspace(
     await rm(workspace, { recursive: true, force: true });
     const args = sparseDirectories.length > 0
       ? ['clone', '--filter=blob:none', '--no-checkout', '--sparse', cloneUrl, workspace]
-      : ['clone', cloneUrl, workspace];
+      : ['clone', '--filter=blob:none', cloneUrl, workspace];
     await runGit(args, {
       cwd: dirname(workspace),
       credential,

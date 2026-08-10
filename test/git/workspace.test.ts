@@ -74,7 +74,7 @@ test('sparse destination workspace uses a blobless+sparse clone and skips out-of
   await assert.rejects(() => git(workspace, ['cat-file', '-e', outOfConeOid!], noLazyFetch));
 });
 
-test('non-sparse destination workspace remains a full clone', async () => {
+test('non-sparse destination workspace uses a blobless full-tree clone', async () => {
   const root = await tempDirectory();
   const monorepo = await createSourceRepo(root, 'monorepo', { 'a/file.txt': 'a-v1', 'b/file.txt': 'b-v1' });
   const bare = await createBareRepo(root, 'monorepo');
@@ -88,8 +88,8 @@ test('non-sparse destination workspace remains a full clone', async () => {
     30_000,
   );
 
-  const promisor = await git(workspace, ['config', '--get', 'remote.origin.promisor']).catch(() => '');
-  assert.equal(promisor, '');
+  assert.equal(await git(workspace, ['config', '--get', 'remote.origin.promisor']), 'true');
+  assert.equal(await git(workspace, ['config', '--get', 'remote.origin.partialclonefilter']), 'blob:none');
   const entries = await readdir(workspace);
   assert.ok(entries.includes('a'));
   assert.ok(entries.includes('b'));

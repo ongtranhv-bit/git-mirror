@@ -37,7 +37,20 @@ export async function pushMirror(
     }
   }
 
+  const pushed = await runGit(['push', remoteName, ...refspecs], { cwd: workspace, credential, timeoutMs, allowFailure: true });
+  if (pushed.exitCode === 0) return;
+  if (!isMissingPartialCloneObject(pushed.stderr) && !isMissingPartialCloneObject(pushed.stdout)) {
+    throw new AppError('GIT_COMMAND_FAILED', 'Git push failed.', {
+      context: { command: 'git push', stdout: pushed.stdout, stderr: pushed.stderr, exitCode: pushed.exitCode },
+    });
+  }
+  await runGit(['fetch', '--prune', '--tags', '--unshallow', 'origin'], { cwd: workspace, credential, timeoutMs, allowFailure: true });
+  await runGit(['fetch', '--prune', '--tags', 'origin'], { cwd: workspace, credential, timeoutMs });
   await runGit(['push', remoteName, ...refspecs], { cwd: workspace, credential, timeoutMs });
+}
+
+function isMissingPartialCloneObject(output: string): boolean {
+  return /missing|promisor|filter|could not read|unable to read|bad object/i.test(output);
 }
 
 export function refsForPushPolicy(refs: Map<string, string>, policy: PushPolicy): Map<string, string> {
