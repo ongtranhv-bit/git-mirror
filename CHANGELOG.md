@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Performance
+
+- Many-to-one destination workspace dùng **blobless + sparse clone** (`--filter=blob:none` + sparse-checkout cone): instance mới chỉ tải ~7MB thay vì clone full monorepo ~5GB. Verified live trên Azure `code-dh-hospital-all`: toàn bộ event (6 destinations) từ >10 phút xuống ~22s; commit+push tạo/verify/xóa branch tạm trên Azure không đụng `main`.
+- Push destination dùng `GIT_NO_LAZY_FETCH=1` để git không back-fill blob thiếu; credentials được truyền vào lệnh checkout/sparse để lazy-fetch blob trong cone xác thực; nhánh orphan reset index bằng `read-tree --empty`.
+- Test: helper `git daemon` (local `file://` transport bỏ qua `--filter`), cho phép `git://` dưới `ALLOW_FILE_GIT_URLS`, phủ sparse clone + vắng blob ngoài cone + end-to-end sync sparse. 88/88 tests pass; typecheck/lint/build/security-scan PASS.
+
 ## 0.2.0 - 2026-08-07
 
 ### Codespace Rotation

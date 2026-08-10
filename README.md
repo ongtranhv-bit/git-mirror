@@ -67,6 +67,7 @@ Xem cấu hình đầy đủ tại [`config.example.json`](config.example.json).
 - `git add -A -- <directory>` bắt cả file bị xóa.
 - Commit có prefix, author/committer cấu hình và Git trailer `Source-Commit`/`Source-Directory`.
 - Trailer trong Git là nguồn sự thật để skip cùng source SHA; RTDB state là cache.
+- Workspace destination được clone kiểu **blobless + sparse** (`--filter=blob:none` + sparse-checkout cone đúng thư mục `directory`), nên instance mới không tải cả monorepo ~5GB mà chỉ ~7MB (commit/tree + file của thư mục sync). Push chạy với `GIT_NO_LAZY_FETCH=1`: commit mới chỉ tham chiếu object mà server đã có nên không cần back-fill blob đang thiếu.
 
 ## Yêu cầu chạy
 
@@ -147,7 +148,7 @@ Implementation guide đề xuất Zod, firebase-admin, simple-git, pino, p-queue
 - Git LFS, wiki, issue, PR, release và full-history many-to-one ngoài phase này.
 - Provider `custom` có schema credential nhưng chưa có adapter tạo repo.
 - `repo:init` vẫn cần `--event-file` để resolve repo động `{sourceRepo}`. Lệnh `reconcile` đã bổ sung discovery động cho source GitHub và có thể enqueue các repo/destination thiếu mà không cần event file; nên dùng `--owner` để giới hạn phạm vi PAT.
-- RTDB Emulator và Gitea Docker smoke test không áp dụng; đã verified GitHub destination live với Docker (3 containers) và node-native. Gitea/Azure destinations unreachable.
+- RTDB Emulator và Gitea Docker smoke test chưa chạy; đã verified GitHub destination live với Docker (3 containers), node-native, và Azure many-to-one live (blobless+sparse clone + commit/push lên branch tạm trên repo `code-dh-hospital-all`).
 - Codespace Rotation đã local/unit verified nhưng chưa live-verify Codespaces API, multi-account ownership, Codespaces secret policy hoặc scheduled GitHub Actions bằng credential thật.
 
 ## Tài liệu nguồn

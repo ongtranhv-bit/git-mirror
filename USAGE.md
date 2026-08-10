@@ -307,6 +307,19 @@ node dist/cli.js config:push config.example.json
 
 Path absolute, `..`, `.git`, path trùng hoặc lồng nhau bị reject trước khi chạy.
 
+### Workspace destination cho many-to-one
+
+Workspace destination many-to-one được clone kiểu **blobless + sparse**:
+`git clone --filter=blob:none --no-checkout --sparse` + `sparse-checkout set <directory>`.
+Instance mới chỉ tải commit/tree và file trong cone (monorepo ~5GB → ~7MB), nên worker chạy
+mỗi giờ không còn clone full. Lệnh checkout/sparse được chạy kèm credential để lazy-fetch
+blob trong cone xác thực được. Khi sync, commit mới được tạo từ index/tree cục bộ và push
+chạy với `GIT_NO_LAZY_FETCH=1` — git không back-fill toàn bộ blob thiếu vì commit mới chỉ
+tham chiếu object mà server destination đã có (nó là con của HEAD hiện tại).
+
+Yêu cầu server Git hỗ trợ partial clone filter (GitHub, Azure DevOps và Gitea đều bật;
+server tự host cần `uploadpack.allowFilter=true`).
+
 ## Commit template variables
 
 Trong cấu hình `commit` của many-to-one destination, có thể dùng template variables:
