@@ -111,6 +111,7 @@ export async function syncDirectory(input: DirectorySyncInput): Promise<Director
     cwd: input.destinationWorkspace,
     credential: input.credential,
     timeoutMs: input.timeoutMs,
+    env: { ...process.env, GIT_NO_LAZY_FETCH: '1' },
   });
   return { status: 'synced', destinationSha: sha, message };
 }

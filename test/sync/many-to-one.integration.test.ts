@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { access, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createLogger } from '../../src/shared/logger.js';
 import { processHookEvent } from '../../src/sync/router.js';
+import { stableHash } from '../../src/shared/paths.js';
 import {
   FakeProvider,
   baseConfig,
@@ -14,6 +15,7 @@ import {
   fileUrl,
   git,
   hook,
+  startGitDaemon,
   tempDirectory,
 } from '../helpers.js';
 
@@ -89,4 +91,50 @@ test('many-to-one repairs destination directory drift even when the same source 
   assert.equal(repaired.destinations[0]?.status, 'synced');
   const readClone = await cloneForRead(root, bareDestination, 'read-repaired');
   assert.equal(await readFile(resolve(readClone, 'app-repair/app.txt'), 'utf8'), 'source-value');
+});
+
+test('many-to-one syncs into a blobless+sparse destination workspace without out-of-cone blobs', async () => {
+  const root = await tempDirectory();
+  const source = await createSourceRepo(root, 'app', { 'app.txt': 'v1' });
+  const bareDestination = await createBareRepo(root, 'sparse-monorepo');
+
+  const seedDir = resolve(root, 'seed');
+  await git(root, ['clone', fileUrl(bareDestination), seedDir]);
+  await mkdir(resolve(seedDir, 'app'), { recursive: true });
+  await mkdir(resolve(seedDir, 'services/other'), { recursive: true });
+  await writeFile(resolve(seedDir, 'app/app.txt'), 'initial');
+  await writeFile(resolve(seedDir, 'services/other/other.txt'), 'keep-me');
+  await git(seedDir, ['add', '-A']);
+  await git(seedDir, ['commit', '-m', 'seed monorepo']);
+  await git(seedDir, ['push', 'origin', 'main']);
+
+  const daemon = await startGitDaemon(root);
+  const dest = destination('many-to-one', 'sparse-monorepo');
+  const config = baseConfig(resolve(root, 'cache-sparse'), { monorepo: dest });
+  const adapter = new FakeProvider('monorepo', dest, daemon.url('sparse-monorepo.git'));
+  const common = {
+    config,
+    instanceId: 'worker-sparse',
+    logger: createLogger('error'),
+    adapters: { monorepo: adapter },
+  };
+
+  const result = await processHookEvent({ ...common, hook: hook(source.path, 'app', source.sha, 'sparse-1') });
+  assert.equal(result.destinations[0]?.status, 'synced');
+  await daemon.stop();
+
+  const readClone = await cloneForRead(root, bareDestination, 'read-sparse');
+  assert.equal(await readFile(resolve(readClone, 'app/app.txt'), 'utf8'), 'v1');
+  assert.equal(await readFile(resolve(readClone, 'services/other/other.txt'), 'utf8'), 'keep-me');
+
+  const workspace = resolve(
+    config.runtime.workdir,
+    'instances',
+    'worker-sparse',
+    'destination',
+    stableHash(daemon.url('sparse-monorepo.git')),
+  );
+  assert.equal(await git(workspace, ['config', '--get', 'remote.origin.promisor']), 'true');
+  const outOfConeOid = (await git(workspace, ['ls-tree', 'HEAD', 'services/other/other.txt'])).split(/\s+/)[2];
+  await assert.rejects(() => git(workspace, ['cat-file', '-e', outOfConeOid!], { GIT_NO_LAZY_FETCH: '1' }));
 });

@@ -121,13 +121,17 @@ export async function ensureDestinationWorkspace(
   credential: CredentialConfig,
   workdir: string,
   timeoutMs: number,
+  sparseDirectories: string[] = [],
 ): Promise<string> {
   validateSourceUrl(cloneUrl);
   const workspace = resolve(workdir, 'destination', stableHash(cloneUrl));
   await mkdir(dirname(workspace), { recursive: true });
   if (!(await pathExists(join(workspace, '.git')))) {
     await rm(workspace, { recursive: true, force: true });
-    await runGit(['clone', cloneUrl, workspace], {
+    const args = sparseDirectories.length > 0
+      ? ['clone', '--filter=blob:none', '--no-checkout', '--sparse', cloneUrl, workspace]
+      : ['clone', cloneUrl, workspace];
+    await runGit(args, {
       cwd: dirname(workspace),
       credential,
       timeoutMs,
@@ -135,34 +139,52 @@ export async function ensureDestinationWorkspace(
   } else {
     await ensureRemote(workspace, 'origin', cloneUrl, timeoutMs);
   }
+  if (sparseDirectories.length > 0) {
+    await runGit(['sparse-checkout', 'init', '--cone'], { cwd: workspace, timeoutMs, credential, allowFailure: true });
+    await runGit(['sparse-checkout', 'set', ...sparseDirectories], { cwd: workspace, timeoutMs, credential });
+  }
   await runGit(['fetch', '--prune', '--tags', 'origin'], {
     cwd: workspace,
     credential,
     timeoutMs,
   });
-  await checkoutDestinationBranch(workspace, branch, timeoutMs);
+  await checkoutDestinationBranch(workspace, branch, timeoutMs, credential);
   return workspace;
 }
 
-export async function checkoutDestinationBranch(workspace: string, branch: string, timeoutMs: number): Promise<void> {
+export async function checkoutDestinationBranch(
+  workspace: string,
+  branch: string,
+  timeoutMs: number,
+  credential?: CredentialConfig,
+): Promise<void> {
+  const runCredential = credential ? { credential } : {};
   const remote = await runGit(['show-ref', '--verify', '--quiet', `refs/remotes/origin/${branch}`], {
     cwd: workspace,
     timeoutMs,
+    ...runCredential,
     allowFailure: true,
   });
   if (remote.exitCode === 0) {
-    await runGit(['checkout', '-B', branch, `origin/${branch}`], { cwd: workspace, timeoutMs });
-    await runGit(['reset', '--hard', `origin/${branch}`], { cwd: workspace, timeoutMs });
+    await runGit(['checkout', '-B', branch, `origin/${branch}`], { cwd: workspace, timeoutMs, ...runCredential });
+    await runGit(['reset', '--hard', `origin/${branch}`], { cwd: workspace, timeoutMs, ...runCredential });
   } else {
     const local = await runGit(['show-ref', '--verify', '--quiet', `refs/heads/${branch}`], {
       cwd: workspace,
       timeoutMs,
+      ...runCredential,
       allowFailure: true,
     });
-    if (local.exitCode === 0) await runGit(['checkout', branch], { cwd: workspace, timeoutMs });
+    if (local.exitCode === 0) await runGit(['checkout', branch], { cwd: workspace, timeoutMs, ...runCredential });
     else {
-      await runGit(['checkout', '--orphan', branch], { cwd: workspace, timeoutMs });
-      await runGit(['rm', '-rf', '--ignore-unmatch', '.'], { cwd: workspace, timeoutMs, allowFailure: true });
+      await runGit(['checkout', '--orphan', branch], { cwd: workspace, timeoutMs, ...runCredential });
+      await runGit(['rm', '-rf', '--ignore-unmatch', '.'], {
+        cwd: workspace,
+        timeoutMs,
+        ...runCredential,
+        allowFailure: true,
+      });
+      await runGit(['read-tree', '--empty'], { cwd: workspace, timeoutMs });
     }
   }
   await runGit(['clean', '-fdx'], { cwd: workspace, timeoutMs });
@@ -267,8 +289,12 @@ export function validateSourceUrl(value: string): void {
   } catch (error) {
     throw new AppError('SOURCE_URL_INVALID', `Invalid repository URL: ${value}`, { cause: error });
   }
-  if (url.protocol !== 'https:' && !(url.protocol === 'file:' && process.env.ALLOW_FILE_GIT_URLS === '1')) {
-    throw new AppError('SOURCE_URL_INVALID', `Repository URL must use HTTPS. file: is allowed only when ALLOW_FILE_GIT_URLS=1 for local tests.`);
+  if (
+    url.protocol !== 'https:'
+    && !(url.protocol === 'file:' && process.env.ALLOW_FILE_GIT_URLS === '1')
+    && !(url.protocol === 'git:' && process.env.ALLOW_FILE_GIT_URLS === '1')
+  ) {
+    throw new AppError('SOURCE_URL_INVALID', `Repository URL must use HTTPS. file: and git: are allowed only when ALLOW_FILE_GIT_URLS=1 for local tests.`);
   }
   if (url.username || url.password) throw new AppError('SOURCE_URL_HAS_CREDENTIAL', 'Repository URL must not contain credentials.');
   for (const key of url.searchParams.keys()) {

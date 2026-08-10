@@ -1,6 +1,8 @@
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { spawn } from 'node:child_process';
+import { createConnection } from 'node:net';
 import { runCommand } from '../src/shared/exec.js';
 import type { AppConfig, DestinationConfig, HookEvent, RemoteRepository, RepoLocator } from '../src/types.js';
 import type { CreateRepoInput, ListBranchCommitsInput, ProviderAdapter } from '../src/providers/provider.js';
@@ -11,11 +13,12 @@ export async function tempDirectory(prefix = 'git-mirror-test-'): Promise<string
   return mkdtemp(join(tmpdir(), prefix));
 }
 
-export async function git(cwd: string, args: string[]): Promise<string> {
+export async function git(cwd: string, args: string[], env: NodeJS.ProcessEnv = {}): Promise<string> {
   const result = await runCommand('git', args, {
     cwd,
     env: {
       ...process.env,
+      ...env,
       GIT_AUTHOR_NAME: 'Test Author',
       GIT_AUTHOR_EMAIL: 'test@example.com',
       GIT_COMMITTER_NAME: 'Test Author',
@@ -59,7 +62,50 @@ export async function createBareRepo(root: string, name: string): Promise<string
   const path = resolve(root, `${name}.git`);
   await mkdir(path, { recursive: true });
   await git(path, ['init', '--bare']);
+  await git(path, ['config', 'uploadpack.allowFilter', 'true']);
   return path;
+}
+
+export interface GitDaemon {
+  url(name: string): string;
+  stop(): Promise<void>;
+}
+
+export async function startGitDaemon(basePath: string): Promise<GitDaemon> {
+  const port = 17_000 + Math.floor(Math.random() * 5_000);
+  const child = spawn('git', [
+    'daemon',
+    '--export-all',
+    '--enable=receive-pack',
+    `--base-path=${basePath}`,
+    '--reuseaddr',
+    '--listen=127.0.0.1',
+    `--port=${port}`,
+  ], { stdio: 'ignore' });
+  await new Promise<void>((resolveReady, reject) => {
+    child.once('error', reject);
+    const deadline = Date.now() + 15_000;
+    const poll = () => {
+      const socket = createConnection({ port, host: '127.0.0.1' });
+      const onOk = () => {
+        socket.destroy();
+        resolveReady();
+      };
+      socket.once('connect', onOk);
+      socket.once('error', () => {
+        socket.destroy();
+        if (Date.now() > deadline) reject(new Error('git daemon failed to start'));
+        else setTimeout(poll, 100);
+      });
+    };
+    poll();
+  });
+  return {
+    url: (name: string) => `git://127.0.0.1:${port}/${name}`,
+    stop: async () => {
+      child.kill('SIGTERM');
+    },
+  };
 }
 
 export function fileUrl(path: string): string {

@@ -30,6 +30,7 @@ export async function syncManyToOne(input: {
     input.destination.creds,
     input.workdir,
     input.timeoutMs,
+    [input.directory],
   );
   const commitInfo = await getCommitInfo(input.sourceWorkspace, input.source.sha, input.timeoutMs);
   const worktree = await createDetachedWorktree(input.sourceWorkspace, input.source.sha, input.workdir, input.timeoutMs);
