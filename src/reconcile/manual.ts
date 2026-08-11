@@ -5,6 +5,7 @@ import type { ProviderAdapter } from '../providers/provider.js';
 import type { RtdbClient } from '../rtdb/client.js';
 import { isExcludedCommit, isExcludedRepo } from '../filter.js';
 import { ensureDestinationWorkspace, ensureSourceWorkspace } from '../git/workspace.js';
+import { runGit } from '../git/workspace.js';
 import { directoryTreeMatchesCommit } from '../git/directory-sync.js';
 import { listRemoteRefs } from '../git/remote-refs.js';
 import { refsForPushPolicy } from '../git/mirror.js';
@@ -39,6 +40,14 @@ export interface RepositoryReconcileResult {
 
 export interface ManualReconcileResult {
   scanned: number;
+  sourceTotal: number;
+  sourceSelected: number;
+  destinationChecksTotal: number;
+  destinationExisting: number;
+  destinationMissing: number;
+  needsReconcile: number;
+  valid: number;
+  invalid: number;
   queued: number;
   wouldQueue: number;
   inSync: number;
@@ -55,6 +64,7 @@ export async function reconcileRepositories(input: {
   logger: Logger;
   dryRun?: boolean;
   sourceCredentialId?: string;
+  orgs?: string[];
   owners?: string[];
   repos?: string[];
   destinations?: string[];
@@ -113,6 +123,7 @@ async function reconcileRepositoriesLocked(input: {
   logger: Logger;
   dryRun?: boolean;
   sourceCredentialId?: string;
+  orgs?: string[];
   owners?: string[];
   repos?: string[];
   destinations?: string[];
@@ -133,6 +144,14 @@ async function reconcileRepositoriesLocked(input: {
 
   const result: ManualReconcileResult = {
     scanned: 0,
+    sourceTotal: repositories.length,
+    sourceSelected: selected.length,
+    destinationChecksTotal: 0,
+    destinationExisting: 0,
+    destinationMissing: 0,
+    needsReconcile: 0,
+    valid: 0,
+    invalid: 0,
     queued: 0,
     wouldQueue: 0,
     inSync: 0,
@@ -168,6 +187,15 @@ async function reconcileRepositoriesLocked(input: {
     else if (item.status === 'empty') result.empty += 1;
     else if (item.status === 'error') result.errors += 1;
     result.destinationErrors += item.destinations?.filter((destination) => destination.status === 'error').length ?? 0;
+    for (const destination of item.destinations ?? []) {
+      if (destination.status === 'skipped') continue;
+      result.destinationChecksTotal += 1;
+      if (destination.reason === 'destination-missing') result.destinationMissing += 1;
+      else if (destination.status !== 'error') result.destinationExisting += 1;
+      if (destination.status === 'in-sync') result.valid += 1;
+      else if (destination.status === 'drift' || destination.status === 'error') result.invalid += 1;
+      if (destination.status === 'drift') result.needsReconcile += 1;
+    }
     if ((input.repoDelayMs ?? 0) > 0) await delay(input.repoDelayMs);
   }
   return result;
@@ -175,7 +203,9 @@ async function reconcileRepositoriesLocked(input: {
 
 async function discoverSources(input: {
   config: AppConfig;
+  logger: Logger;
   sourceCredentialId?: string;
+  orgs?: string[];
   apiDelayMs?: number;
 }): Promise<DiscoveredSourceRepository[]> {
   const entries = Object.entries(input.config.src.creds).filter(([id, credential]) => {
@@ -189,12 +219,19 @@ async function discoverSources(input: {
   }
   const merged = new Map<string, DiscoveredSourceRepository>();
   for (const [credentialId, credential] of entries) {
-    const discovered = await discoverGithubRepositories({
-      credentialId,
-      credential,
-      apiTimeoutMs: input.config.runtime.apiTimeoutMs,
-      apiDelayMs: input.apiDelayMs,
-    });
+    let discovered: DiscoveredSourceRepository[];
+    try {
+      discovered = await discoverGithubRepositories({
+        credentialId,
+        credential,
+        apiTimeoutMs: input.config.runtime.apiTimeoutMs,
+        apiDelayMs: input.apiDelayMs,
+        orgs: input.orgs,
+      });
+    } catch (error) {
+      input.logger.error({ credentialId, orgs: input.orgs, error: toPublicError(error) }, 'reconcile.source_discovery_failed');
+      throw error;
+    }
     for (const repository of discovered) merged.set(repository.fullName.toLowerCase(), repository);
   }
   return [...merged.values()].sort((left, right) => left.fullName.localeCompare(right.fullName));
@@ -310,6 +347,25 @@ async function reconcileRepository(input: {
         }
 
         const directory = resolveDirectory(destination, source);
+        const workspaceKey = `${destinationId}:${cloneUrl}:${destination.branch}:${directory}`;
+        let destinationWorkspacePromise = input.destinationWorkspaceCache.get(workspaceKey);
+        if (!destinationWorkspacePromise) {
+          destinationWorkspacePromise = ensureDestinationWorkspace(
+            cloneUrl,
+            destination.branch,
+            destination.creds,
+            resolve(input.config.runtime.workdir, 'reconcile'),
+            input.config.runtime.gitTimeoutMs,
+            [directory],
+          );
+          input.destinationWorkspaceCache.set(workspaceKey, destinationWorkspacePromise);
+        }
+        const destinationWorkspace = await destinationWorkspacePromise;
+        if (!(await directoryExistsInHead(destinationWorkspace, directory, input.config.runtime.gitTimeoutMs))) {
+          recordDestination({ destinationId, status: 'drift', reason: `directory-missing:${directory}` });
+          drifted.push(destinationId);
+          continue;
+        }
         const marker = sourceCommitMarker(destination.commit, source, directory);
         if (marker) {
           const messages = await adapter.listBranchCommitMessages({
@@ -334,19 +390,6 @@ async function reconcileRepository(input: {
           resolve(input.config.runtime.workdir, 'reconcile'),
           input.config.runtime.gitTimeoutMs,
         );
-        const workspaceKey = `${destinationId}:${cloneUrl}:${destination.branch}`;
-        let destinationWorkspacePromise = input.destinationWorkspaceCache.get(workspaceKey);
-        if (!destinationWorkspacePromise) {
-          destinationWorkspacePromise = ensureDestinationWorkspace(
-            cloneUrl,
-            destination.branch,
-            destination.creds,
-            resolve(input.config.runtime.workdir, 'reconcile'),
-            input.config.runtime.gitTimeoutMs,
-          );
-          input.destinationWorkspaceCache.set(workspaceKey, destinationWorkspacePromise);
-        }
-        const destinationWorkspace = await destinationWorkspacePromise;
         const matches = await directoryTreeMatchesCommit(
           destinationWorkspace,
           sourceWorkspace,
@@ -405,6 +448,15 @@ async function reconcileRepository(input: {
   } catch (error) {
     return { sourceRepo: repository.fullName, status: 'error', error: toPublicError(error) };
   }
+}
+
+async function directoryExistsInHead(workspace: string, directory: string, timeoutMs: number): Promise<boolean> {
+  const result = await runGit(['ls-tree', '-d', '--name-only', 'HEAD', directory], {
+    cwd: workspace,
+    timeoutMs,
+    allowFailure: true,
+  });
+  return result.exitCode === 0 && result.stdout.trim() === directory;
 }
 
 function locatorFor(destination: DestinationConfig, source: SourceRepository): RepoLocator {

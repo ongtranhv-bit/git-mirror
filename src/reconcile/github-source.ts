@@ -1,6 +1,6 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { apiHeaders } from '../git/auth.js';
-import { requestJson } from '../providers/http.js';
+import { requestJsonWithRetry } from '../providers/http.js';
 import type { CredentialConfig } from '../types.js';
 
 export interface DiscoveredSourceRepository {
@@ -46,17 +46,54 @@ export async function discoverGithubRepositories(input: {
   credential: CredentialConfig;
   apiTimeoutMs: number;
   apiDelayMs?: number;
+  orgs?: string[];
 }): Promise<DiscoveredSourceRepository[]> {
+  if ((input.orgs?.length ?? 0) > 0) return discoverGithubOrgRepositories(input as typeof input & { orgs: string[] });
+  return discoverGithubRepositoryPages(input, `${apiBase(input.credential)}/user/repos`, (url) => {
+    url.searchParams.set('affiliation', 'owner,collaborator,organization_member');
+  });
+}
+
+async function discoverGithubOrgRepositories(input: {
+  credentialId: string;
+  credential: CredentialConfig;
+  apiTimeoutMs: number;
+  apiDelayMs?: number;
+  orgs: string[];
+}): Promise<DiscoveredSourceRepository[]> {
+  const merged = new Map<string, DiscoveredSourceRepository>();
+  for (const org of [...new Set(input.orgs.map((item) => item.trim()).filter(Boolean))]) {
+    try {
+      const discovered = await discoverGithubRepositoryPages(input, `${apiBase(input.credential)}/orgs/${encodeURIComponent(org)}/repos`);
+      for (const repository of discovered) merged.set(repository.fullName.toLowerCase(), repository);
+    } catch (error) {
+      throw error;
+    }
+    if ((input.apiDelayMs ?? 0) > 0) await delay(input.apiDelayMs);
+  }
+  return [...merged.values()].sort((left, right) => left.fullName.localeCompare(right.fullName));
+}
+
+async function discoverGithubRepositoryPages(
+  input: {
+    credentialId: string;
+    credential: CredentialConfig;
+    apiTimeoutMs: number;
+    apiDelayMs?: number;
+  },
+  endpoint: string,
+  decorateUrl: (url: URL) => void = () => {},
+): Promise<DiscoveredSourceRepository[]> {
   const repositories: DiscoveredSourceRepository[] = [];
   const perPage = 100;
   for (let page = 1; ; page += 1) {
-    const url = new URL(`${apiBase(input.credential)}/user/repos`);
+    const url = new URL(endpoint);
     url.searchParams.set('per_page', String(perPage));
     url.searchParams.set('page', String(page));
     url.searchParams.set('sort', 'full_name');
     url.searchParams.set('direction', 'asc');
-    url.searchParams.set('affiliation', 'owner,collaborator,organization_member');
-    const response = await requestJson<GitHubRepositoryListItem[]>(url.toString(), {
+    decorateUrl(url);
+    const response = await requestJsonWithRetry<GitHubRepositoryListItem[]>(url.toString(), {
       method: 'GET',
       headers: headers(input.credential),
       timeoutMs: input.apiTimeoutMs,
@@ -88,7 +125,7 @@ export async function getGithubCommitMessage(input: {
   apiTimeoutMs: number;
 }): Promise<string> {
   const { repository } = input;
-  const response = await requestJson<GitHubCommitResponse>(
+  const response = await requestJsonWithRetry<GitHubCommitResponse>(
     `${apiBase(repository.credential)}/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/commits/${encodeURIComponent(input.sha)}`,
     {
       method: 'GET',

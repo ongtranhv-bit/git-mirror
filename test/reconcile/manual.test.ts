@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { reconcileRepositories } from '../../src/reconcile/manual.js';
+import { discoverGithubRepositories } from '../../src/reconcile/github-source.js';
 import type { DiscoveredSourceRepository } from '../../src/reconcile/github-source.js';
 import { MemoryRtdbClient } from '../../src/rtdb/memory-client.js';
 import { createLogger } from '../../src/shared/logger.js';
@@ -69,6 +70,14 @@ test('manual reconcile queues only drifted destinations and leaves in-sync desti
   });
 
   assert.equal(result.scanned, 1);
+  assert.equal(result.sourceTotal, 1);
+  assert.equal(result.sourceSelected, 1);
+  assert.equal(result.destinationChecksTotal, 2);
+  assert.equal(result.destinationExisting, 2);
+  assert.equal(result.destinationMissing, 0);
+  assert.equal(result.needsReconcile, 1);
+  assert.equal(result.valid, 1);
+  assert.equal(result.invalid, 1);
   assert.equal(result.queued, 1);
   const repository = result.repositories[0]!;
   assert.deepEqual(repository.targetDestinations, ['drift']);
@@ -79,12 +88,73 @@ test('manual reconcile queues only drifted destinations and leaves in-sync desti
   assert.equal(event.sourceCredentialId, 'github');
 });
 
+test('manual reconcile reports destination missing without using RTDB repository state', async () => {
+  const root = await tempDirectory();
+  const source = await createSourceRepo(root, 'app', { 'app.txt': 'v1' });
+  const config = destination('one-to-one');
+  const full = baseConfig(resolve(root, 'cache'), { missing: config });
+  const client = new MemoryRtdbClient();
+  await client.set(`${full.rtdb.statePath}/repositories/missing`, { repo: 'stale-rtdb-state' });
+  class MissingProvider extends FakeProvider {
+    override async getRepository(): Promise<null> { return null; }
+  }
+
+  const result = await reconcileRepositories({
+    config: full,
+    client,
+    logger: createLogger('error'),
+    dryRun: true,
+    repoDelayMs: 0,
+    apiDelayMs: 0,
+    adapters: { missing: new MissingProvider('missing', config, fileUrl(resolve(root, 'missing.git'))) },
+    discoveredRepositories: [sourceRepo(source)],
+  });
+
+  assert.equal(result.destinationChecksTotal, 1);
+  assert.equal(result.destinationExisting, 0);
+  assert.equal(result.destinationMissing, 1);
+  assert.equal(result.needsReconcile, 1);
+  assert.equal(result.valid, 0);
+  assert.equal(result.invalid, 1);
+  assert.equal(result.wouldQueue, 1);
+  assert.equal(await client.get(full.rtdb.pendingPath), null);
+  assert.equal(result.repositories[0]?.destinations?.[0]?.reason, 'destination-missing');
+});
+
+test('GitHub source discovery scans comma-separated reconcile orgs with pagination and dedupe', async () => {
+  const original = globalThis.fetch;
+  const seen: string[] = [];
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    seen.push(`${url.pathname}?page=${url.searchParams.get('page')}`);
+    const page = url.searchParams.get('page');
+    const org = url.pathname.split('/')[2];
+    const repos = page === '1'
+      ? [{ id: 1, name: 'app', full_name: `${org}/app`, clone_url: `https://github.com/${org}/app.git`, default_branch: 'main', owner: { login: org } }]
+      : [];
+    return new Response(JSON.stringify(repos), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const repositories = await discoverGithubRepositories({
+      credentialId: 'github',
+      credential: { type: 'github', token: 'secret' },
+      apiTimeoutMs: 5_000,
+      apiDelayMs: 0,
+      orgs: ['org-a', 'org-a', 'org-b'],
+    });
+    assert.deepEqual(repositories.map((item) => item.fullName), ['org-a/app', 'org-b/app']);
+    assert.equal(seen.filter((item) => item === '/orgs/org-a/repos?page=1').length, 1);
+    assert.ok(seen.includes('/orgs/org-b/repos?page=1'));
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
 test('manual reconcile marks many-to-one in-sync when the source commit marker is in destination history', async () => {
   const root = await tempDirectory();
   const source = await createSourceRepo(root, 'app', { 'app.txt': 'v1' });
   const destBare = await createBareRepo(root, 'mono');
-  await git(source.path, ['remote', 'add', 'mono', fileUrl(destBare)]);
-  await git(source.path, ['push', 'mono', 'refs/heads/main:refs/heads/main']);
+  await seedManyToOneDirectory(root, destBare, 'app');
 
   const config = destination('many-to-one');
   const full = baseConfig(resolve(root, 'cache'), { mono: config });
@@ -113,8 +183,7 @@ test('manual reconcile marks many-to-one drifted when the source commit marker i
   const root = await tempDirectory();
   const source = await createSourceRepo(root, 'app', { 'app.txt': 'v1' });
   const destBare = await createBareRepo(root, 'mono');
-  await git(source.path, ['remote', 'add', 'mono', fileUrl(destBare)]);
-  await git(source.path, ['push', 'mono', 'refs/heads/main:refs/heads/main']);
+  await seedManyToOneDirectory(root, destBare, 'app');
 
   const config = destination('many-to-one');
   const full = baseConfig(resolve(root, 'cache'), { mono: config });
@@ -140,6 +209,19 @@ test('manual reconcile marks many-to-one drifted when the source commit marker i
     { destinationId: 'mono', status: 'drift', reason: 'source-commit-not-synced' },
   ]);
 });
+
+async function seedManyToOneDirectory(root: string, bare: string, directory: string): Promise<void> {
+  const { mkdir, writeFile } = await import('node:fs/promises');
+  const work = resolve(root, `seed-${directory}-${Math.random().toString(16).slice(2)}`);
+  await mkdir(work, { recursive: true });
+  await git(work, ['init', '-b', 'main']);
+  await git(work, ['remote', 'add', 'origin', fileUrl(bare)]);
+  await mkdir(resolve(work, directory), { recursive: true });
+  await writeFile(resolve(work, directory, 'app.txt'), 'v1');
+  await git(work, ['add', '-A']);
+  await git(work, ['commit', '-m', 'seed monorepo directory']);
+  await git(work, ['push', 'origin', 'refs/heads/main:refs/heads/main']);
+}
 
 test('manual reconcile falls back to tree comparison when no sourceSha trailer is configured', async () => {
   const root = await tempDirectory();

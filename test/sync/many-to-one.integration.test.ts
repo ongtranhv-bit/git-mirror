@@ -100,6 +100,7 @@ test('many-to-one syncs into a blobless+sparse destination workspace without out
 
   const seedDir = resolve(root, 'seed');
   await git(root, ['clone', fileUrl(bareDestination), seedDir]);
+  await git(seedDir, ['checkout', '-B', 'main']);
   await mkdir(resolve(seedDir, 'app'), { recursive: true });
   await mkdir(resolve(seedDir, 'services/other'), { recursive: true });
   await writeFile(resolve(seedDir, 'app/app.txt'), 'initial');
