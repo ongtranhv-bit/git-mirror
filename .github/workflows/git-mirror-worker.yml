@@ -14,7 +14,20 @@ on:
         type: number
 
 permissions:
-  contents: read
+  actions: write
+  attestations: write
+  checks: write
+  contents: write
+  deployments: write
+  discussions: write
+  id-token: write
+  issues: write
+  packages: write
+  pages: write
+  pull-requests: write
+  repository-projects: write
+  security-events: write
+  statuses: write
 
 concurrency:
   # Keep only one listener chain: the next run queues until the current one
@@ -26,6 +39,10 @@ jobs:
   worker:
     runs-on: ubuntu-latest
     timeout-minutes: 340
+    if: >-
+      (github.event_name == 'workflow_dispatch')      
+      || (github.event_name == 'push' && github.repository == 'ongtrieuhauphuchien29-oss/git-mirror')
+      || (github.event_name == 'schedule' && github.repository == 'ongtrieuhauphuchien29-oss/git-mirror')
     env:
       RTDB_URL: ${{ secrets.RTDB_URL }}
       GOOGLE_SERVICE_ACCOUNT_B64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_B64 }}
