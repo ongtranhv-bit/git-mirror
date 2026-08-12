@@ -39,9 +39,11 @@ export function gitCredentialEnv(
   return {
     ...baseEnv,
     GIT_TERMINAL_PROMPT: '0',
-    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_COUNT: '2',
     GIT_CONFIG_KEY_0: 'http.extraHeader',
     GIT_CONFIG_VALUE_0: `${header.name}: ${header.value}`,
+    GIT_CONFIG_KEY_1: 'credential.helper',
+    GIT_CONFIG_VALUE_1: '',
   };
 }
 
