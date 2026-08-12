@@ -1,5 +1,6 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { AppError } from '../shared/errors.js';
+import { createLogger, type Logger } from '../shared/logger.js';
 import type { RtdbClient, TransactionResult } from './client.js';
 
 export interface AuthTokenProvider {
@@ -7,13 +8,19 @@ export interface AuthTokenProvider {
   getBearerToken(): Promise<string | undefined>;
 }
 
+const SSE_IDLE_TIMEOUT_MS = 75_000;
+const SSE_RECONNECT_BASE_MS = 500;
+const SSE_RECONNECT_MAX_MS = 5_000;
+
 export class RestRtdbClient implements RtdbClient {
   private readonly baseUrl: string;
   private readonly auth: AuthTokenProvider;
+  private readonly logger: Logger;
 
-  constructor(databaseUrl: string, auth: AuthTokenProvider) {
+  constructor(databaseUrl: string, auth: AuthTokenProvider, logger?: Logger) {
     this.baseUrl = databaseUrl.replace(/\/$/, '');
     this.auth = auth;
+    this.logger = logger ?? createLogger('warn', { service: 'rtdb-stream' });
   }
 
   async get<T>(path: string): Promise<T | null> {
@@ -73,11 +80,22 @@ export class RestRtdbClient implements RtdbClient {
     callback: (key: string, value: T) => void | Promise<void>,
     signal: AbortSignal,
   ): Promise<void> {
-    const known = new Set<string>();
+    let known = new Set<string>();
+    let reconnects = 0;
     while (!signal.aborted) {
+      let reason = 'disconnected';
+      const connection = new AbortController();
+      const watchdog = setTimeout(() => {
+        reason = 'idle-timeout';
+        connection.abort();
+      }, SSE_IDLE_TIMEOUT_MS);
+      watchdog.unref();
       try {
         const headers = await this.headers({ Accept: 'text/event-stream' });
-        const response = await fetch(await this.url(path), { headers, signal });
+        const response = await fetch(await this.url(path), {
+          headers,
+          signal: AbortSignal.any([signal, connection.signal]),
+        });
         if (!response.ok || !response.body) {
           throw new AppError('RTDB_SSE_FAILED', `RTDB SSE returned HTTP ${response.status}.`, {
             status: response.status,
@@ -89,7 +107,11 @@ export class RestRtdbClient implements RtdbClient {
         let buffer = '';
         while (!signal.aborted) {
           const { done, value } = await reader.read();
-          if (done) break;
+          if (done) {
+            reason = 'stream-ended';
+            break;
+          }
+          watchdog.refresh();
           buffer += decoder.decode(value, { stream: true });
           let boundary = buffer.indexOf('\n\n');
           while (boundary >= 0) {
@@ -101,8 +123,19 @@ export class RestRtdbClient implements RtdbClient {
         }
       } catch (error) {
         if (signal.aborted) return;
-        if (error instanceof AppError && !error.retryable) throw error;
-        await delay(1_000, undefined, { signal }).catch(() => undefined);
+        reason = error instanceof AppError ? error.message : error instanceof Error ? error.message : String(error);
+      } finally {
+        if (signal.aborted) return;
+        clearTimeout(watchdog);
+        connection.abort();
+        known = new Set<string>();
+        reconnects += 1;
+        this.logger.warn(
+          { path: normalizePath(path), reason, reconnect: reconnects },
+          'rtdb.sse_reconnect',
+        );
+        const backoff = Math.min(SSE_RECONNECT_BASE_MS * 2 ** Math.min(reconnects - 1, 4), SSE_RECONNECT_MAX_MS);
+        await delay(backoff, undefined, { signal }).catch(() => undefined);
       }
     }
   }

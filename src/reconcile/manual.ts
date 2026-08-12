@@ -208,6 +208,7 @@ async function discoverSources(input: {
   orgs?: string[];
   apiDelayMs?: number;
 }): Promise<DiscoveredSourceRepository[]> {
+  const orgs = input.orgs ?? input.config.src.orgs;
   const entries = Object.entries(input.config.src.creds).filter(([id, credential]) => {
     if (input.sourceCredentialId && id !== input.sourceCredentialId) return false;
     return credential.type === 'github';
@@ -226,10 +227,10 @@ async function discoverSources(input: {
         credential,
         apiTimeoutMs: input.config.runtime.apiTimeoutMs,
         apiDelayMs: input.apiDelayMs,
-        orgs: input.orgs,
+        orgs,
       });
     } catch (error) {
-      input.logger.error({ credentialId, orgs: input.orgs, error: toPublicError(error) }, 'reconcile.source_discovery_failed');
+      input.logger.error({ credentialId, orgs, error: toPublicError(error) }, 'reconcile.source_discovery_failed');
       throw error;
     }
     for (const repository of discovered) merged.set(repository.fullName.toLowerCase(), repository);

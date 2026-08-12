@@ -28,7 +28,8 @@
           { "mode": "contains", "value": "msbuild-tools" }
         ]
       }
-    }
+    },
+    "orgs": ["my-org-1", "my-org-2"]
   },
   "dest": {
     "github-main": {
