@@ -23,6 +23,7 @@
     "deploy:config:push-config.code-dh-hospital": "dotenvrtdb -e .env -- node dist/cli.js config:push config.code-dh-hospital.json",
     "deploy:secret": "node deploy-cli/ghcli.mjs .env",
     "deploy:secret-hhoa95476-io": "node deploy-cli/ghcli.mjs .env.hhoa95476-io",
+    "deploy:secret-ongtrieuhauphuchien29-oss": "node deploy-cli/ghcli.mjs .env.ongtrieuhauphuchien29-oss",
     "deploy:reconcile": "dotenvrtdb -e .env -- node dist/cli.js reconcile --owner code-dh-hospital --dry-run",
     "deploy:ghw": "ghw --profile ongtranhv-bit --location SouthEastAsia --repo git-mirror --tmux"
   },
