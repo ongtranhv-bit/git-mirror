@@ -47,13 +47,15 @@ export async function ensureSourceWorkspace(
     }
   }
   if (!(await pathExists(workspace))) {
-    await runGit(['clone', '--mirror', '--filter=blob:none', source.url, workspace], {
+    const authUrl = buildAuthenticatedUrl(source.url, source.credential);
+    await runGit(['clone', '--mirror', '--filter=blob:none', authUrl, workspace], {
       cwd: dirname(workspace),
       credential: source.credential,
       timeoutMs,
     });
   } else {
-    await runGit(['remote', 'set-url', 'origin', source.url], { cwd: workspace, timeoutMs });
+    const authUrl = buildAuthenticatedUrl(source.url, source.credential);
+    await runGit(['remote', 'set-url', 'origin', authUrl], { cwd: workspace, timeoutMs });
     await runGit(['fetch', '--prune', '--tags', 'origin'], {
       cwd: workspace,
       credential: source.credential,
@@ -101,15 +103,16 @@ export async function ensureRemote(
   name: string,
   url: string,
   timeoutMs: number,
+  credential?: CredentialConfig,
 ): Promise<'added' | 'updated' | 'unchanged'> {
-  validateSourceUrl(url);
+  const finalUrl = credential ? buildAuthenticatedUrl(url, credential) : url;
   const result = await runGit(['remote', 'get-url', name], { cwd: workspace, timeoutMs, allowFailure: true });
   if (result.exitCode !== 0) {
-    await runGit(['remote', 'add', name, url], { cwd: workspace, timeoutMs });
+    await runGit(['remote', 'add', name, finalUrl], { cwd: workspace, timeoutMs });
     return 'added';
   }
-  if (result.stdout.trim() !== url) {
-    await runGit(['remote', 'set-url', name, url], { cwd: workspace, timeoutMs });
+  if (result.stdout.trim() !== finalUrl) {
+    await runGit(['remote', 'set-url', name, finalUrl], { cwd: workspace, timeoutMs });
     return 'updated';
   }
   return 'unchanged';
@@ -311,4 +314,22 @@ async function pathExists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function buildAuthenticatedUrl(url: string, credential: CredentialConfig): string {
+  const parsed = new URL(url);
+  if (credential.type === 'github') {
+    parsed.username = 'x-access-token';
+    parsed.password = credential.token;
+  } else if (credential.type === 'gitea') {
+    parsed.username = credential.username ?? 'git';
+    parsed.password = credential.token;
+  } else if (credential.type === 'azure') {
+    parsed.username = '';
+    parsed.password = credential.token;
+  } else {
+    parsed.username = credential.username ?? 'oauth2';
+    parsed.password = credential.token;
+  }
+  return parsed.toString();
 }

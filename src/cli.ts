@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { checkRepositories } from './app/check.js';
 import { initRepositories } from './app/init.js';
@@ -48,6 +48,24 @@ async function main(): Promise<void> {
     const config = await loadConfig({ file: resolve(file) });
     await client.set(config.rtdb.configPath, encodeConfig(raw));
     console.log(JSON.stringify({ status: 'pushed', path: config.rtdb.configPath }, null, 2));
+    return;
+  }
+
+  if (parsed.command === 'config:pull') {
+    const client = createRtdbClientFromEnv();
+    const rtdbPath = stringOption(parsed.options, 'path') ?? process.env.RTDB_CONFIG_PATH ?? '/sync/config';
+    const value = await client.get<string>(rtdbPath);
+    if (typeof value !== 'string' || value.trim() === '') {
+      throw new Error(`config:pull: RTDB node "${rtdbPath}" does not contain a base64 config string.`);
+    }
+    const json = decodeBase64(value);
+    const outFile = parsed.positionals[0] ?? stringOption(parsed.options, 'output');
+    if (outFile) {
+      await writeFile(resolve(outFile), json, 'utf8');
+      console.log(JSON.stringify({ status: 'pulled', path: rtdbPath, file: resolve(outFile) }, null, 2));
+    } else {
+      console.log(json);
+    }
     return;
   }
 
@@ -229,6 +247,7 @@ function printHelp(): void {
   config:encode <config.json>
   config:decode <config.b64>
   config:push <config.json>
+  config:pull [<output.json>] [--path <rtdb-path>]
   codespace:plan --rotation-config <file> [--date YYYY-MM-DD]
   codespace:preflight --rotation-config <file> [--date YYYY-MM-DD]
   codespace:rotate [--date YYYY-MM-DD] [--fake] [--no-stop-old]

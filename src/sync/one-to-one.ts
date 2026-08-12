@@ -13,7 +13,7 @@ export async function syncOneToOne(input: {
 }): Promise<DestinationResult> {
   const startedAt = Date.now();
   const remoteName = `dst-${input.destinationId.replace(/[^A-Za-z0-9._-]/g, '-')}`;
-  await ensureRemote(input.sourceWorkspace, remoteName, input.repository.cloneUrl, input.timeoutMs);
+  await ensureRemote(input.sourceWorkspace, remoteName, input.repository.cloneUrl, input.timeoutMs, input.destination.creds);
   if (!input.dryRun) {
     await pushMirror(
       input.sourceWorkspace,
@@ -21,6 +21,7 @@ export async function syncOneToOne(input: {
       input.destination.creds,
       input.destination.push,
       input.timeoutMs,
+      input.source.credential,
     );
   }
   return {

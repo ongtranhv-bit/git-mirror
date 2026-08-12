@@ -9,6 +9,7 @@ export async function pushMirror(
   credential: CredentialConfig,
   policy: PushPolicy,
   timeoutMs: number,
+  sourceCredential?: CredentialConfig,
 ): Promise<void> {
   const refsResult = await runGit(['for-each-ref', '--format=%(objectname)%09%(refname)', 'refs/heads', 'refs/tags'], {
     cwd: workspace,
@@ -28,7 +29,6 @@ export async function pushMirror(
   if (policy.deleteMissingRefs) {
     const remoteResult = await runGit(['ls-remote', '--heads', '--tags', remoteName], {
       cwd: workspace,
-      credential,
       timeoutMs,
     });
     const remoteRefs = refsForPushPolicy(parseLsRemote(remoteResult.stdout), policy);
@@ -37,16 +37,16 @@ export async function pushMirror(
     }
   }
 
-  const pushed = await runGit(['push', remoteName, ...refspecs], { cwd: workspace, credential, timeoutMs, allowFailure: true });
+  const pushed = await runGit(['push', remoteName, ...refspecs], { cwd: workspace, timeoutMs, allowFailure: true });
   if (pushed.exitCode === 0) return;
   if (!isMissingPartialCloneObject(pushed.stderr) && !isMissingPartialCloneObject(pushed.stdout)) {
     throw new AppError('GIT_COMMAND_FAILED', 'Git push failed.', {
       context: { command: 'git push', stdout: pushed.stdout, stderr: pushed.stderr, exitCode: pushed.exitCode },
     });
   }
-  await runGit(['fetch', '--prune', '--tags', '--unshallow', 'origin'], { cwd: workspace, credential, timeoutMs, allowFailure: true });
-  await runGit(['fetch', '--prune', '--tags', 'origin'], { cwd: workspace, credential, timeoutMs });
-  await runGit(['push', remoteName, ...refspecs], { cwd: workspace, credential, timeoutMs });
+  await runGit(['fetch', '--prune', '--tags', '--unshallow', 'origin'], { cwd: workspace, credential: sourceCredential ?? credential, timeoutMs, allowFailure: true });
+  await runGit(['fetch', '--prune', '--tags', 'origin'], { cwd: workspace, credential: sourceCredential ?? credential, timeoutMs });
+  await runGit(['push', remoteName, ...refspecs], { cwd: workspace, timeoutMs });
 }
 
 function isMissingPartialCloneObject(output: string): boolean {
