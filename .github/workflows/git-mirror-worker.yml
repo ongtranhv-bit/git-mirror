@@ -1,6 +1,9 @@
 name: Git Mirror Sync Worker
 
 on:
+  push:
+    branches:
+      - main
   schedule:
     # Hourly at :07 UTC (off top-of-hour, which GitHub Actions drops under load).
     # The 55-minute worker ends ~:02, leaving a ~5 minute gap each hour.
