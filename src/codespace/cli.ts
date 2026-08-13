@@ -23,7 +23,7 @@ export function isCodespaceCommand(command: string): boolean {
 }
 
 export async function handleCodespaceCommand(parsed: CodespaceParsedArgs): Promise<void> {
-  const client = needsRtdb(parsed) ? createRtdbClientFromEnv() : optionalRtdbClient();
+  const client = needsRtdb(parsed) ? await createRtdbClientFromEnv() : await optionalRtdbClient();
   if (parsed.command === 'codespace:config:encode') {
     const file = stringOption(parsed.options, 'rotation-config') ?? parsed.positionals[0];
     if (!file) throw new AppError('CODESPACE_CONFIG_FILE_REQUIRED', 'codespace:config:encode requires a config file.');
@@ -173,7 +173,7 @@ class AutoReadyFakeLifecycle extends FakeCodespaceLifecycle {
   }
 }
 
-function optionalRtdbClient(): RtdbClient | undefined {
+async function optionalRtdbClient(): Promise<RtdbClient | undefined> {
   if (!process.env.RTDB_URL || (!process.env.GOOGLE_SERVICE_ACCOUNT_B64 && !process.env.RTDB_AUTH_SECRET)) return undefined;
   return createRtdbClientFromEnv();
 }
