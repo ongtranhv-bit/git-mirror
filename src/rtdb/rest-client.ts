@@ -203,7 +203,9 @@ export class RestRtdbClient implements RtdbClient {
 
   private async url(path: string): Promise<string> {
     const auth = await this.auth.getQueryAuth();
-    const url = new URL(`${this.baseUrl}/${normalizePath(path)}.json`);
+    const normalized = normalizePath(path);
+    const suffix = normalized.endsWith('.json') ? '' : '.json';
+    const url = new URL(`${this.baseUrl}/${normalized}${suffix}`);
     if (auth) url.searchParams.set('auth', auth);
     return url.toString();
   }

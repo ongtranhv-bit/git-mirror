@@ -42,7 +42,7 @@ async function main(): Promise<void> {
   }
 
   if (parsed.command === 'config:push') {
-    const client = createRtdbClientFromEnv();
+    const client = await createRtdbClientFromEnv();
     const file = requiredValue(parsed.positionals[0] ?? stringOption(parsed.options, 'config'), 'config:push requires a JSON file.');
     const raw = await readFile(resolve(file), 'utf8');
     const config = await loadConfig({ file: resolve(file) });
@@ -52,7 +52,7 @@ async function main(): Promise<void> {
   }
 
   if (parsed.command === 'config:pull') {
-    const client = createRtdbClientFromEnv();
+    const client = await createRtdbClientFromEnv();
     const rtdbPath = stringOption(parsed.options, 'path') ?? process.env.RTDB_CONFIG_PATH ?? '/sync/config';
     const value = await client.get<string>(rtdbPath);
     if (typeof value !== 'string' || value.trim() === '') {
@@ -69,7 +69,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const client = ['run', 'replay', 'webhook:bridge', 'reconcile'].includes(parsed.command) ? createRtdbClientFromEnv() : optionalRtdbClient();
+  const client = ['run', 'replay', 'webhook:bridge', 'reconcile'].includes(parsed.command) ? await createRtdbClientFromEnv() : await optionalRtdbClient();
   const config = await loadCommandConfig(parsed, client);
   const logger = createLogger(config.runtime.logLevel, { service: 'git-mirror' });
 
@@ -204,7 +204,7 @@ function parseEvent(raw: string): HookEvent {
 }
 
 
-function optionalRtdbClient(): RtdbClient | undefined {
+async function optionalRtdbClient(): Promise<RtdbClient | undefined> {
   if (!process.env.RTDB_URL || (!process.env.GOOGLE_SERVICE_ACCOUNT_B64 && !process.env.RTDB_AUTH_SECRET)) return undefined;
   return createRtdbClientFromEnv();
 }
