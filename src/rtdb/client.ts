@@ -20,6 +20,7 @@ export interface RtdbClient {
   ): Promise<TransactionResult<T>>;
   onChildAdded<T>(path: string, callback: (key: string, value: T) => void | Promise<void>): () => void;
   watchValue<T>(path: string, callback: (value: T | null) => void | Promise<void>): () => void;
+  close?(): Promise<void> | void;
 }
 
 export async function createRtdbClientFromEnv(env: NodeJS.ProcessEnv = process.env): Promise<RtdbClient> {

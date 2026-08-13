@@ -77,6 +77,15 @@ export class AdminRtdbClient implements RtdbClient {
     ref.on('value', listener);
     return () => ref.off('value', listener);
   }
+
+  async close(): Promise<void> {
+    try {
+      const { getApp, deleteApp } = await import('firebase-admin/app');
+      deleteApp(getApp(APP_NAME));
+    } catch (error) {
+      this.logger.warn({ error: error instanceof Error ? error.message : String(error) }, 'rtdb.admin_close_failed');
+    }
+  }
 }
 
 export async function createAdminRtdbClient(

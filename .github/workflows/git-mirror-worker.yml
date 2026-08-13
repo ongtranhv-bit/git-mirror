@@ -71,6 +71,11 @@ jobs:
           pid=$!
           forward() { kill -TERM "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; exit 0; }
           trap forward TERM INT
-          sleep "$seconds"
-          kill -TERM "$pid"
-          wait "$pid"
+          sleep "$seconds" &
+          sleeper=$!
+          # Wait for whichever finishes first: the worker (handover/restart-required
+          # exits early to release the concurrency slot) or the keep-alive window.
+          wait -n "$pid" "$sleeper" || true
+          kill "$sleeper" 2>/dev/null || true
+          kill -TERM "$pid" 2>/dev/null || true
+          wait "$pid" 2>/dev/null || true

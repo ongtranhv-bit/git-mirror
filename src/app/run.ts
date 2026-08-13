@@ -289,6 +289,7 @@ export async function runWorker(input: {
     if (lease) {
       try { await lease.stop(); } catch (error) { logger.warn({ error: toPublicError(error) }, 'runner.lease_stop_failed'); }
     }
+    try { await input.client.close?.(); } catch (error) { logger.warn({ error: toPublicError(error) }, 'rtdb.close_failed'); }
     shutdown.dispose();
   }
 }
