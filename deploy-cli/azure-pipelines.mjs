@@ -69,7 +69,7 @@ export async function stopRun(token, org, project, pipelineId, runId) {
 }
 
 export async function timelineRecords(token, org, project, runId) {
-  const { records } = await azureFetch(token, org, project, `_apis/build/builds/${runId}/timeline`, API_VERSION);
+  const { records } = await azureFetch(token, org, project, `_apis/build/builds/${runId}/timeline`, "7.0");
   return records
     .filter((record) => record.type === "Task" && record.log?.id)
     .map((record) => ({
@@ -83,7 +83,7 @@ export async function timelineRecords(token, org, project, runId) {
 
 export async function fetchTaskLog(token, org, project, runId, logId) {
   const response = await fetch(
-    `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/build/builds/${runId}/logs/${logId}?api-version=${API_VERSION}`,
+    `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/build/builds/${runId}/logs/${logId}?api-version=7.0`,
     { headers: azureHeaders(token) },
   );
   if (!response.ok) {

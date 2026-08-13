@@ -113,19 +113,51 @@ const groupId = options.groupId || controls.get("AZURECLI_GROUP_ID") || controls
 const groupName = controls.get("AZURECLI_GROUP_NAME") || controls.get("AZURE_VARIABLE_GROUP_NAME") || "";
 if (!organization) fail("set organization (--org or AZURECLI_ORG/AZURE_ORG)");
 if (!project) fail("set project (--project or AZURECLI_PROJECT/AZURE_PROJECT)");
-if (!groupId) fail("set variable group id (--group-id or AZURECLI_GROUP_ID/AZURE_VARIABLE_GROUP_ID)");
+if (!groupId && !groupName) fail("set variable group id (--group-id or AZURECLI_GROUP_ID/AZURE_VARIABLE_GROUP_ID) or name (AZURECLI_GROUP_NAME)");
 
-const baseUrl = `https://dev.azure.com/${encodeURIComponent(organization)}/${encodeURIComponent(project)}`
-  + `/_apis/distributedtask/variablegroups/${encodeURIComponent(groupId)}?api-version=${AZURE_API_VERSION}`;
 const headers = {
   Authorization: `Basic ${Buffer.from(`:${token}`).toString("base64")}`,
   "Content-Type": "application/json",
 };
 
-async function fetchVariableGroup() {
-  const response = await fetch(baseUrl, { headers });
+async function apiCall(path = "", init = {}) {
+  const suffix = path ? `/${path}` : "";
+  const url = `https://dev.azure.com/${encodeURIComponent(organization)}/${encodeURIComponent(project)}`
+    + `/_apis/distributedtask/variablegroups${suffix}?api-version=${AZURE_API_VERSION}`;
+  const response = await fetch(url, { ...init, headers: { ...headers, ...(init.headers ?? {}) } });
+  const text = await response.text();
+  let body;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    body = text;
+  }
+  if (!response.ok) fail(`variable group request failed: HTTP ${response.status}: ${String(body).slice(0, 300)}`);
+  return body;
+}
+
+async function resolveGroupId() {
+  if (groupId) return groupId;
+  const list = await apiCall();
+  const existing = list.value?.find((group) => group.name === groupName);
+  if (existing) {
+    console.log(`azurecli: using existing variable group "${groupName}" (id ${existing.id})`);
+    return String(existing.id);
+  }
+  const created = await apiCall("", {
+    method: "POST",
+    body: JSON.stringify({ name: groupName, description: "git-mirror pipeline variables", type: "Vsts", variables: { _seed: { value: "1" } } }),
+  });
+  console.log(`azurecli: created variable group "${groupName}" (id ${created.id})`);
+  return String(created.id);
+}
+
+async function fetchVariableGroup(id) {
+  const url = `https://dev.azure.com/${encodeURIComponent(organization)}/${encodeURIComponent(project)}`
+    + `/_apis/distributedtask/variablegroups/${encodeURIComponent(id)}?api-version=${AZURE_API_VERSION}`;
+  const response = await fetch(url, { headers });
   if (response.status === 404) return null;
-  if (!response.ok) fail(`cannot read variable group ${groupId}: HTTP ${response.status}`);
+  if (!response.ok) fail(`cannot read variable group ${id}: HTTP ${response.status}`);
   return response.json();
 }
 
@@ -136,7 +168,8 @@ async function publish(updates) {
     }
     return;
   }
-  const group = await fetchVariableGroup();
+  const id = await resolveGroupId();
+  const group = await fetchVariableGroup(id);
   const variables = { ...(group?.variables ?? {}) };
   for (const update of updates) {
     variables[update.name] = update.isSecret
@@ -144,19 +177,23 @@ async function publish(updates) {
       : { value: update.value };
   }
   const body = {
-    id: Number(groupId),
+    id: Number(id),
     name: group?.name ?? groupName,
     description: group?.description ?? "git-mirror pipeline variables",
     type: group?.type ?? "Vsts",
     variables,
   };
   if (!body.name) fail("variable group not found and AZURECLI_GROUP_NAME is not set");
-  const response = await fetch(baseUrl, {
-    method: "PUT",
-    headers,
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) fail(`cannot update variable group ${groupId}: HTTP ${response.status}`);
+  const response = await fetch(
+    `https://dev.azure.com/${encodeURIComponent(organization)}/${encodeURIComponent(project)}`
+      + `/_apis/distributedtask/variablegroups/${encodeURIComponent(id)}?api-version=${AZURE_API_VERSION}`,
+    {
+      method: "PUT",
+      headers,
+      body: JSON.stringify(body),
+    },
+  );
+  if (!response.ok) fail(`cannot update variable group ${id}: HTTP ${response.status}`);
   for (const update of updates) {
     console.log(`Updated ${update.isSecret ? "pipeline-secret  " : "pipeline-variable"} ${update.name}`);
   }
