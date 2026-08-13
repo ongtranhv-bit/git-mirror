@@ -81,19 +81,28 @@ try {
   pipeline = await apiCall(`pipelines/git-mirror?api-version=7.1-preview`);
   console.log(`pipeline git-mirror already exists (id ${pipeline.id})`);
 } catch (error) {
-  if (!String(error.message).includes('404')) throw error;
-  pipeline = await apiCall(`pipelines?api-version=7.1-preview`, {
-    method: 'POST',
-    body: JSON.stringify({
-      name: 'git-mirror',
-      configuration: {
-        type: 'yaml',
-        path: '.azure/azure-pipelines.yml',
-        repository: { id: repo.id, name: 'git-mirror', type: 'azureReposGit' },
-      },
-    }),
-  });
-  console.log(`created pipeline git-mirror (id ${pipeline.id})`);
+  if (!String(error.message).includes('404') && !String(error.message).includes('409')) throw error;
+  if (String(error.message).includes('409')) {
+    console.log('pipeline git-mirror already exists (409)');
+  } else {
+    try {
+      pipeline = await apiCall(`pipelines?api-version=7.1-preview`, {
+        method: 'POST',
+        body: JSON.stringify({
+          name: 'git-mirror',
+          configuration: {
+            type: 'yaml',
+            path: '.azure/azure-pipelines.yml',
+            repository: { id: repo.id, name: 'git-mirror', type: 'azureReposGit' },
+          },
+        }),
+      });
+      console.log(`created pipeline git-mirror (id ${pipeline.id})`);
+    } catch (createError) {
+      if (!String(createError.message).includes('409')) throw createError;
+      console.log('pipeline git-mirror already exists (409)');
+    }
+  }
 }
 
 console.log(`\nnext: node deploy-cli/azurecli.mjs deploy-cli/.env  (set variable group secrets)`);
