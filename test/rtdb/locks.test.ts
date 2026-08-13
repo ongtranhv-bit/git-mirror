@@ -45,3 +45,28 @@ test('destination lock stays blocked while the holder heartbeat is fresh', async
   assert.equal(isLockStale(alive, 60, now), false);
   assert.equal(await acquireDestinationLock(client, '/locks', 'github/org/repo', 'worker-b', 60), false);
 });
+
+test('destination lock is reclaimed when the holder instance is dead, even if ttl is fresh', async () => {
+  const client = new MemoryRtdbClient();
+  const now = Date.now();
+  const lock: LockRecord = { owner: 'dead-worker', claimedAt: now, heartbeatAt: now, expiresAt: now + 60_000 };
+  await client.set(`/locks/${sanitizeRtdbKey('github/org/repo')}`, lock);
+  await client.set(`/instances/dead-worker`, { status: 'stopped', heartbeatAt: now - 120_000 });
+  assert.equal(isLockStale(lock, 60, now), false);
+  assert.equal(
+    await acquireDestinationLock(client, '/locks', 'github/org/repo', 'worker-b', 60, { instancesPath: '/instances' }),
+    true,
+  );
+});
+
+test('destination lock stays blocked while the holder instance is alive', async () => {
+  const client = new MemoryRtdbClient();
+  const now = Date.now();
+  const lock: LockRecord = { owner: 'live-worker', claimedAt: now, heartbeatAt: now, expiresAt: now + 60_000 };
+  await client.set(`/locks/${sanitizeRtdbKey('github/org/repo')}`, lock);
+  await client.set(`/instances/live-worker`, { status: 'running', heartbeatAt: now });
+  assert.equal(
+    await acquireDestinationLock(client, '/locks', 'github/org/repo', 'worker-b', 60, { instancesPath: '/instances' }),
+    false,
+  );
+});

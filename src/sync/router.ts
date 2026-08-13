@@ -271,6 +271,7 @@ async function processDestination(input: {
       lockKey,
       input.instanceId,
       input.config.runtime.lockTtlSeconds,
+      { instancesPath: input.config.rtdb.instancesPath },
     );
     if (!locked) throw new AppError('DESTINATION_LOCKED', `Destination is locked: ${lockKey}`, { retryable: true });
     const lockPath = `${input.config.rtdb.locksPath}/${sanitizeRtdbKey(lockKey)}`;

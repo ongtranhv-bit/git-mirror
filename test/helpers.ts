@@ -143,6 +143,7 @@ export function baseConfig(workdir: string, destinations: Record<string, Destina
       statePath: '/sync/state',
       locksPath: '/sync/locks',
       instancesPath: '/sync/instances',
+      processedByCommitPath: '/sync/processed-commits',
       retentionDays: 14,
     },
   };
