@@ -2,6 +2,7 @@ import type { Logger } from '../shared/logger.js';
 import { toPublicError } from '../shared/errors.js';
 import { stableHash } from '../shared/paths.js';
 import type { RtdbClient } from '../rtdb/client.js';
+import { commitKeyOf } from '../rtdb/events.js';
 import { commitMessagesOf, isExcludedCommit, isExcludedRepo } from '../filter.js';
 import type { AppConfig, HookEvent, ProviderType } from '../types.js';
 
@@ -156,7 +157,7 @@ async function recoverClaimedDelivery(
   }
   const [pending, processing, processed, failed] = await Promise.all([
     options.client.get(`${options.config.rtdb.pendingPath}/${eventId}`),
-    options.client.get(`${options.config.rtdb.processingPath}/${eventId}`),
+    options.client.get(`${options.config.rtdb.processingPath}/${commitKeyOf(event)}`),
     options.client.get(`${options.config.rtdb.processedPath}/${eventId}`),
     options.client.get(`${options.config.rtdb.failedPath}/${eventId}`),
   ]);

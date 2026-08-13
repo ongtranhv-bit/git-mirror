@@ -1,5 +1,28 @@
 {
+  "name": "git-mirror-deploy-cli",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Deploy utilities for git-mirror: interactive menu + GitHub Actions / Azure Pipelines runner management + secrets (ghcli/azurecli).",
+  "type": "module",
+  "license": "ISC",
+  "bin": {
+    "git-mirror-deploy": "./menu.mjs",
+    "gh-actions": "./gh-actions.mjs",
+    "azure-pipelines": "./azure-pipelines.mjs",
+    "ghcli": "./ghcli.mjs",
+    "azurecli": "./azurecli.mjs"
+  },
   "scripts": {
+    "menu": "node menu.mjs",
+    "start": "node menu.mjs",
+    "gh:repos": "node gh-actions.mjs list-repos",
+    "gh:workflows": "node gh-actions.mjs list-workflows",
+    "gh:runs": "node gh-actions.mjs list-runs",
+    "gh:run": "node gh-actions.mjs run",
+    "az:projects": "node azure-pipelines.mjs list-projects",
+    "az:repos": "node azure-pipelines.mjs list-repos",
+    "az:pipelines": "node azure-pipelines.mjs list-pipelines",
+    "az:run": "node azure-pipelines.mjs run",
     "deploy:reconcile": "dotenvrtdb -e .env -- node dist/cli.js reconcile --owner code-dh-hospital --dry-run",
     "deploy:reconcile:Admin.BusinessLogic": "dotenvrtdb -e .env -- node dist/cli.js reconcile --owner code-dh-hospital --repo Admin.BusinessLogic --dry-run",
     "deploy:reconcile:Admin.DataAccess": "dotenvrtdb -e .env -- node dist/cli.js reconcile --owner code-dh-hospital --repo Admin.DataAccess --dry-run",
@@ -153,6 +176,7 @@
     "deploy:reconcile:OTH.HosQuality": "dotenvrtdb -e .env -- node dist/cli.js reconcile --owner code-dh-hospital --repo OTH.HosQuality --dry-run",
     "deploy:reconcile:OTH.HosRestore": "dotenvrtdb -e .env -- node dist/cli.js reconcile --owner code-dh-hospital --repo OTH.HosRestore --dry-run",
     "deploy:reconcile:OTH.Logger": "dotenvrtdb -e .env -- node dist/cli.js reconcile --owner code-dh-hospital --repo OTH.Logger --dry-run",
+    "dep": "deploy:reconcile:OTH.MainWS",
     "deploy:reconcile:OTH.MainWS": "dotenvrtdb -e .env -- node dist/cli.js reconcile --owner code-dh-hospital --repo OTH.MainWS --dry-run",
     "deploy:reconcile:OTH.Model.FHI": "dotenvrtdb -e .env -- node dist/cli.js reconcile --owner code-dh-hospital --repo OTH.Model.FHI --dry-run",
     "deploy:reconcile:OTH.PAY.Sacombank.POSApis": "dotenvrtdb -e .env -- node dist/cli.js reconcile --owner code-dh-hospital --repo OTH.PAY.Sacombank.POSApis --dry-run",
@@ -217,5 +241,11 @@
     "deploy:reconcile:winform-web-app": "dotenvrtdb -e .env -- node dist/cli.js reconcile --owner code-dh-hospital --repo winform-web-app --dry-run",
     "deploy:reconcile:XtraRPT": "dotenvrtdb -e .env -- node dist/cli.js reconcile --owner code-dh-hospital --repo XtraRPT --dry-run",
     "deploy:reconcile:XtraRPT.old": "dotenvrtdb -e .env -- node dist/cli.js reconcile --owner code-dh-hospital --repo XtraRPT.old --dry-run"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "prompts": "^2.4.2"
   }
 }
