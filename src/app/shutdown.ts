@@ -2,6 +2,7 @@ export interface ShutdownController {
   signal: AbortSignal;
   wait(): Promise<NodeJS.Signals>;
   dispose(): void;
+  trigger(): void;
 }
 
 export function createShutdownController(): ShutdownController {
@@ -11,13 +12,14 @@ export function createShutdownController(): ShutdownController {
     resolveSignal = resolve;
   });
   const handlers = new Map<NodeJS.Signals, () => void>();
+  const fire = (signal: NodeJS.Signals) => {
+    if (!controller.signal.aborted) {
+      controller.abort();
+      resolveSignal(signal);
+    }
+  };
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-    const handler = () => {
-      if (!controller.signal.aborted) {
-        controller.abort();
-        resolveSignal(signal);
-      }
-    };
+    const handler = () => fire(signal);
     handlers.set(signal, handler);
     process.on(signal, handler);
   }
@@ -27,5 +29,6 @@ export function createShutdownController(): ShutdownController {
     dispose: () => {
       for (const [signal, handler] of handlers) process.off(signal, handler);
     },
+    trigger: () => fire('SIGTERM'),
   };
 }

@@ -2,7 +2,7 @@ import type { Logger } from '../shared/logger.js';
 import { toPublicError } from '../shared/errors.js';
 import { isRetryableError } from '../shared/retry.js';
 import { sanitizeRtdbKey } from '../shared/paths.js';
-import type { HookEvent, SyncEventResult } from '../types.js';
+import type { AppConfig, HookEvent, SyncEventResult } from '../types.js';
 import type { RtdbClient } from './client.js';
 import { claimEventAtomically, refreshLock } from './locks.js';
 
@@ -17,12 +17,25 @@ export interface EventPaths {
 
 export interface EventProcessorOptions {
   client: RtdbClient;
-  paths: EventPaths;
+  paths?: EventPaths;
   instanceId: string;
-  lockTtlSeconds: number;
-  maxEventRetries: number;
+  lockTtlSeconds?: number;
+  maxEventRetries?: number;
   logger: Logger;
   handler: (event: HookEvent) => Promise<SyncEventResult>;
+  /** Resolves the live config; when present, paths/lockTtlSeconds/maxEventRetries are read from it per event. */
+  getConfig?: () => AppConfig;
+}
+
+function resolveOptions(options: EventProcessorOptions): Required<Pick<EventProcessorOptions, 'paths' | 'lockTtlSeconds' | 'maxEventRetries'>> & EventProcessorOptions {
+  if (options.getConfig) {
+    const config = options.getConfig();
+    return { ...options, paths: config.rtdb, lockTtlSeconds: config.runtime.lockTtlSeconds, maxEventRetries: config.runtime.maxEventRetries };
+  }
+  if (!options.paths || options.lockTtlSeconds === undefined || options.maxEventRetries === undefined) {
+    throw new Error('EventProcessorOptions requires paths/lockTtlSeconds/maxEventRetries or getConfig.');
+  }
+  return options as Required<Pick<EventProcessorOptions, 'paths' | 'lockTtlSeconds' | 'maxEventRetries'>> & EventProcessorOptions;
 }
 
 function attemptsOf(payload: unknown): number {
@@ -52,56 +65,58 @@ export async function processPendingEvent(
   payload: Omit<HookEvent, 'eventId'> | HookEvent,
   options: EventProcessorOptions,
 ): Promise<boolean> {
+  const resolved = resolveOptions(options);
+  const { client, paths, lockTtlSeconds, maxEventRetries } = resolved;
   const claimKey = commitKeyOf(payload);
   const claimed = await claimEventAtomically(
-    options.client,
-    options.paths.processingPath,
+    client,
+    paths.processingPath,
     claimKey,
     options.instanceId,
-    options.lockTtlSeconds,
+    lockTtlSeconds,
     { ...payload, _eventId: eventId },
-    { instancesPath: options.paths.instancesPath },
+    { instancesPath: paths.instancesPath },
   );
   if (!claimed) return false;
 
   const event: HookEvent = { ...payload, eventId } as HookEvent;
   const log = options.logger.child({ eventId, instanceId: options.instanceId });
-  const claimPath = `${options.paths.processingPath}/${claimKey}`;
+  const claimPath = `${paths.processingPath}/${claimKey}`;
   const heartbeat = setInterval(
-    () => void refreshLock(options.client, claimPath, options.instanceId, options.lockTtlSeconds)
+    () => void refreshLock(client, claimPath, options.instanceId, lockTtlSeconds)
       .catch((error) => log.warn({ error: toPublicError(error) }, 'event.lock_heartbeat_failed')),
-    Math.max(1_000, Math.floor((options.lockTtlSeconds * 1_000) / 3)),
+    Math.max(1_000, Math.floor((lockTtlSeconds * 1_000) / 3)),
   );
   heartbeat.unref();
   log.info({}, 'event.claimed');
   try {
-    const alreadyProcessed = await isCommitProcessed(options.client, options.paths, claimKey);
+    const alreadyProcessed = await isCommitProcessed(client, paths, claimKey);
     if (alreadyProcessed) {
-      await options.client.update({
-        [`${options.paths.pendingPath}/${eventId}`]: null,
-        [`${options.paths.processingPath}/${claimKey}`]: null,
+      await client.update({
+        [`${paths.pendingPath}/${eventId}`]: null,
+        [`${paths.processingPath}/${claimKey}`]: null,
       });
       log.info({}, 'event.already_processed_skipped');
       return true;
     }
-    if (await hasEarlierPendingSibling(options.client, options.paths, event)) {
+    if (await hasEarlierPendingSibling(client, paths, event)) {
       log.info({}, 'event.awaiting_earlier_sibling');
-      await options.client.update({ [`${options.paths.processingPath}/${claimKey}`]: null });
+      await client.update({ [`${paths.processingPath}/${claimKey}`]: null });
       await new Promise((resolve) => setTimeout(resolve, Math.min(2_000, 100 * 2 ** Math.min(attemptsOf(payload), 5))));
       return processPendingEvent(eventId, payload, options);
     }
     const result = await options.handler(event);
-    await markProcessed(options.client, options.paths, eventId, claimKey, result);
+    await markProcessed(client, paths, eventId, claimKey, result);
     log.info({ durationMs: result.completedAt - result.startedAt }, 'event.processed');
   } catch (error) {
     const attempts = attemptsOf(payload);
-    if (attempts < options.maxEventRetries && isRetryableError(error)) {
-      await requeueEvent(options.client, options.paths, eventId, claimKey, { ...payload, _retries: attempts + 1 });
-      log.warn({ attempts: attempts + 1, maxAttempts: options.maxEventRetries }, 'event.retryable_requeued');
+    if (attempts < maxEventRetries && isRetryableError(error)) {
+      await requeueEvent(client, paths, eventId, claimKey, { ...payload, _retries: attempts + 1 });
+      log.warn({ attempts: attempts + 1, maxAttempts: maxEventRetries }, 'event.retryable_requeued');
       return true;
     }
     const aggregateResult = extractAggregateResult(error);
-    await markFailed(options.client, options.paths, eventId, claimKey, payload, error, aggregateResult);
+    await markFailed(client, paths, eventId, claimKey, payload, error, aggregateResult);
     log.error({ error: toPublicError(error) }, 'event.failed');
   } finally {
     clearInterval(heartbeat);
@@ -135,6 +150,7 @@ export function listenPendingEvents(options: EventProcessorOptions): {
   stop: () => void;
   idle: () => Promise<void>;
 } {
+  const resolved = resolveOptions(options);
   let accepting = true;
   let chain = Promise.resolve();
   const run = (eventId: string, payload: Omit<HookEvent, 'eventId'>, attempt: number): void => {
@@ -149,7 +165,7 @@ export function listenPendingEvents(options: EventProcessorOptions): {
         options.logger.error({ eventId, error: toPublicError(error) }, 'event.queue_error');
       });
   };
-  const unsubscribe = options.client.onChildAdded<Omit<HookEvent, 'eventId'>>(options.paths.pendingPath, (eventId, payload) => {
+  const unsubscribe = options.client.onChildAdded<Omit<HookEvent, 'eventId'>>(resolved.paths.pendingPath, (eventId, payload) => {
     if (accepting) run(eventId, payload, 0);
   });
   return {
@@ -162,7 +178,8 @@ export function listenPendingEvents(options: EventProcessorOptions): {
 }
 
 export async function processAllPending(options: EventProcessorOptions): Promise<number> {
-  const pending = (await options.client.get<Record<string, Omit<HookEvent, 'eventId'>>>(options.paths.pendingPath)) ?? {};
+  const paths = resolveOptions(options).paths;
+  const pending = (await options.client.get<Record<string, Omit<HookEvent, 'eventId'>>>(paths.pendingPath)) ?? {};
   const entries = Object.entries(pending).sort(([, left], [, right]) => (left.receivedAt ?? 0) - (right.receivedAt ?? 0));
   let count = 0;
   for (const [eventId, payload] of entries) {

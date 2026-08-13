@@ -62,6 +62,21 @@ export class AdminRtdbClient implements RtdbClient {
     ref.on('child_added', listener);
     return () => ref.off('child_added', listener);
   }
+
+  watchValue<T>(path: string, callback: (value: T | null) => void | Promise<void>): () => void {
+    const ref = this.database.ref(joinPath(this.prefix, path));
+    const listener = (snapshot: DataSnapshot): void => {
+      const value = snapshot.val() as T | null;
+      void Promise.resolve(callback(value === undefined ? null : value)).catch((error) => {
+        this.logger.error(
+          { path, error: error instanceof Error ? error.message : String(error) },
+          'rtdb.value_changed_failed',
+        );
+      });
+    };
+    ref.on('value', listener);
+    return () => ref.off('value', listener);
+  }
 }
 
 export async function createAdminRtdbClient(

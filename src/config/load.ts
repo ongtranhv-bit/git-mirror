@@ -72,7 +72,14 @@ function parseRawConfig(source: string, env: NodeJS.ProcessEnv): AppConfig {
   } catch (error) {
     throw new AppError('CONFIG_JSON_INVALID', 'Configuration is not valid JSON.', { cause: error });
   }
-  const config = parseConfig(interpolateEnvironment(parsed, env));
+  return applyEnvOverrides(parseConfig(interpolateEnvironment(parsed, env)), env);
+}
+
+export function parseConfigSource(source: string, env: NodeJS.ProcessEnv = process.env): AppConfig {
+  return parseRawConfig(source, env);
+}
+
+export function applyEnvOverrides(config: AppConfig, env: NodeJS.ProcessEnv): AppConfig {
   const envRules = parseFilterRulesFromEnv(env.SRC_FILTER_COMMIT_EXCLUDE);
   if (envRules.length > 0) {
     const existing = config.src.filter?.commit?.exclude ?? [];
@@ -84,6 +91,10 @@ function parseRawConfig(source: string, env: NodeJS.ProcessEnv): AppConfig {
   const envRetention = Number(env.RTDB_RETENTION_DAYS);
   if (Number.isFinite(envRetention) && envRetention > 0) {
     config.rtdb.retentionDays = envRetention;
+  }
+  const envRunnerPath = env.RTDB_RUNNER_PATH?.trim();
+  if (envRunnerPath) {
+    config.rtdb.runnerPath = envRunnerPath;
   }
   if (env.CODESPACE_KEEPALIVE_ENABLED !== undefined) {
     const value = env.CODESPACE_KEEPALIVE_ENABLED.trim().toLowerCase();

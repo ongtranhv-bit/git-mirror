@@ -24,6 +24,11 @@ Sao chép `.env.example` thành `.env`. Không commit `.env`.
 | `GOOGLE_SERVICE_ACCOUNT_B64` | Khuyến nghị | Toàn bộ service-account JSON encode base64 — kích hoạt listener realtime qua `firebase-admin` SDK |
 | `RTDB_AUTH_SECRET` | Fallback | Secret legacy gắn `auth` trong request, không log URL hoàn chỉnh |
 | `INSTANCE_ID` | Không | Mặc định hostname-pid-random |
+| `CONFIG_AUTO_RELOAD` | Không | `0` tắt hot reload; mặc định bật khi config load từ RTDB |
+| `RUNNER_KEY` | Không | Key singleton cho Docker/local (không có CI): `manual:<value>` |
+| `RUNNER_REGISTRY_DISABLED` | Không | `1` bỏ qua runner registry, instance chạy độc lập |
+| `RUNNER_WORKFLOW_FILE` | Không | Azure: tên yml pipeline để làm key (Azure không expose qua env) |
+| `RTDB_RUNNER_PATH` | Không | Node chứa runner lease, mặc định `/sync/runners` |
 | PAT variables | Theo config | Source/destination token tham chiếu `${NAME}` |
 | `RTDB_RETENTION_DAYS` | Không | Retention days cho event cũ (default 7, override `rtdb.retentionDays`) |
 | `CODESPACE_KEEPALIVE_ENABLED` | Không | Bật keepalive Codespace (true/1/yes) |
@@ -88,6 +93,23 @@ Image chạy user không phải root, có volume cache, restart policy và healt
 - Cache nằm dưới `runtime.workdir/instances/{instanceId}` để tránh shared-worktree corruption.
 - Có thể chia sẻ volume cache; mỗi instance vẫn dùng cây riêng.
 - SIGTERM/SIGINT dừng nhận event mới, chờ job hiện tại và nhả destination lock.
+
+### Runner singleton (từ 0.3.0)
+
+Mỗi runner nhận diện bằng key `provider:owner/repo:workflow` (GitHub parse `GITHUB_WORKFLOW_REF`, Azure dùng `BUILD_REPOSITORY_URI` + `RUNNER_WORKFLOW_FILE`/`SYSTEM_PIPELINEID`, Docker/local dùng `RUNNER_KEY`). Instance claim lease tại `/sync/runners/<key>`:
+
+- Instance mới cùng key chiếm quyền ngay (bump `generation`); instance cũ watch thấy mất quyền → ngừng nhận event → xong event đang dở → thoát.
+- Instance chết đột ngột: instance kế tiếp claim tiếp mà không cần chờ hết TTL.
+- Trong khoảng chuyển giao, hai instance có thể chạy song song nhưng không xử lý trùng commit (dedup theo commit SHA tại `/sync/events/processing`).
+- `run --once` không tham gia registry.
+
+### Hot reload config (từ 0.3.0)
+
+Worker watch node config trên RTDB (`rtdb.configPath`, mặc định `/sync/config`):
+
+- Config hợp lệ → áp dụng ngay (per-event snapshot: event đang chạy giữ config cũ, event mới dùng config mới). Listener/heartbeat/keepalive/bridge tự re-attach nếu path/interval đổi.
+- Config không hợp lệ → giữ config cũ, log warning + ghi `/sync/state/config-errors/<ts>`.
+- Field ảnh hưởng runtime không hot reload được (`runtime.workdir`) → log warning rõ field, worker thoát (exit 0) để orchestrator restart: Docker `restart: unless-stopped`, GitHub Actions/Azure Pipelines schedule spawn run mới. Muốn tắt hot reload: `CONFIG_AUTO_RELOAD=0`.
 
 ## 7. Backup và restore RTDB
 

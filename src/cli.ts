@@ -167,6 +167,7 @@ async function main(): Promise<void> {
       once: Boolean(parsed.options.once),
       dryRun: Boolean(parsed.options['dry-run']),
       bridge: Boolean(parsed.options.bridge),
+      reloadConfig: configFromRtdb(parsed),
     });
     console.log(JSON.stringify(result, null, 2));
     return;
@@ -181,6 +182,13 @@ async function loadCommandConfig(parsed: ParsedArgs, client?: RtdbClient): Promi
     rtdb: client,
     rtdbPath: process.env.RTDB_CONFIG_PATH,
   });
+}
+
+function configFromRtdb(parsed: ParsedArgs): boolean {
+  if (process.env.CONFIG_AUTO_RELOAD === '0') return false;
+  if (stringOption(parsed.options, 'config-json') || process.env.CONFIG_JSON) return false;
+  if (stringOption(parsed.options, 'config') || process.env.CONFIG_FILE) return false;
+  return true;
 }
 
 async function loadOptionalEvent(options: Record<string, string | boolean>): Promise<HookEvent | undefined> {

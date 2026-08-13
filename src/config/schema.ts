@@ -45,6 +45,7 @@ const DEFAULT_RTDB: RtdbPaths = {
   locksPath: '/sync/locks',
   instancesPath: '/sync/instances',
   processedByCommitPath: '/sync/processed-commits',
+  runnerPath: '/sync/runners',
   retentionDays: 14,
 };
 
@@ -352,6 +353,7 @@ function parseRtdb(value: unknown, issues: string[]): RtdbPaths {  const object 
     locksPath: rtdbPath(object?.locksPath, '$.rtdb.locksPath', issues, DEFAULT_RTDB.locksPath),
     instancesPath: rtdbPath(object?.instancesPath, '$.rtdb.instancesPath', issues, DEFAULT_RTDB.instancesPath),
     processedByCommitPath: rtdbPath(object?.processedByCommitPath, '$.rtdb.processedByCommitPath', issues, DEFAULT_RTDB.processedByCommitPath),
+    runnerPath: rtdbPath(object?.runnerPath, '$.rtdb.runnerPath', issues, DEFAULT_RTDB.runnerPath),
     retentionDays: integer(object?.retentionDays, '$.rtdb.retentionDays', issues, DEFAULT_RTDB.retentionDays, 1),
   };
 }
