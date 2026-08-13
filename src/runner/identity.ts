@@ -35,7 +35,7 @@ export function resolveRunnerIdentity(options: ResolveRunnerIdentityOptions = {}
     if (github) return github;
   }
 
-  if (env.TF_BUILD === 'true' || env.AZURE_PIPELINES === 'true') {
+  if ((env.TF_BUILD ?? '').toLowerCase() === 'true' || (env.AZURE_PIPELINES ?? '').toLowerCase() === 'true') {
     const azure = identityFromAzure(env);
     if (azure) return azure;
   }
