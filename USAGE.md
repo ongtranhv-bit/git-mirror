@@ -67,6 +67,10 @@ node dist/cli.js run
 node dist/cli.js run --once
 ```
 
+Listener lắng nghe realtime theo credentials: có `GOOGLE_SERVICE_ACCOUNT_B64` → dùng `firebase-admin` SDK `onChildAdded` (WebSocket/long-polling, tự reconnect — chịu proxy cắt stream dài; CRUD/transaction vẫn qua REST). Không có service account → fallback REST/SSE với `RTDB_AUTH_SECRET`. Nếu có cả hai, SDK được ưu tiên.
+
+> Lưu ý: REST SSE bị proxy (GitHub-hosted runner, proxy công ty) cắt âm thầm sau thời gian idle — nên chạy với service account để dùng SDK listener.
+
 Hook relay ghi event vào:
 
 ```json

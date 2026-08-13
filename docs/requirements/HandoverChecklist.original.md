@@ -139,11 +139,11 @@ scripts/
     *   Hàm: `saveRepositoryState()`.
 ### 3.6 RTDB listener và event lifecycle
 - [ ]     Service account base64 được decode trong memory.
-    *   File: `src/rtdb/client.ts`.
-    *   Hàm: `createAdminDatabaseFromBase64()`.
+    *   File: `src/rtdb/admin-client.ts`.
+    *   Hàm: `createAdminRtdbClient()` (hybrid: listener `onChildAdded` qua SDK, CRUD/transaction qua REST).
 - [ ]     Có fallback `RTDB_AUTH_SECRET` khi không có service account.
     *   File: `src/rtdb/rest-client.ts`.
-    *   Hàm: `createRestDatabaseClient()`.
+    *   Hàm: `createRtdbClientFromEnv()` (async, ưu tiên Admin SDK).
 - [ ]     Listener đọc `pending` và xử lý tuần tự.
     *   File: `src/rtdb/events.ts`, `src/app/run.ts`.
     *   Hàm: `listenPendingEvents()`, `processPendingEvent()`.

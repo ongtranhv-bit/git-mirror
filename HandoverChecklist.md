@@ -74,7 +74,8 @@ Quy ước:
 | --- | --- | --- |
 | Service account base64 in-memory | DONE | `createServiceAccountTokenProvider()`; không ghi file |
 | Secret fallback | DONE | `createRtdbClientFromEnv()` + query auth chỉ trong request |
-| REST/SSE listener | DONE | `RestRtdbClient.onChildAdded()` |
+| REST/SSE listener | DONE | `RestRtdbClient.onChildAdded()` (fallback khi không có service account) |
+| SDK listener (service account) | DONE | `AdminRtdbClient.onChildAdded()` qua `firebase-admin` — hybrid: CRUD/transaction qua REST |
 | ETag transaction | DONE | `RestRtdbClient.transaction()` |
 | Sequential event queue | DONE | promise chain trong `listenPendingEvents()` |
 | pending→processing→processed/failed | DONE | event lifecycle integration test |

@@ -213,13 +213,15 @@ Source-Directory: apps/app
 RTDB state chỉ là cache. Commit trailer trong Git là nguồn kiểm tra cuối để skip cùng source SHA.
 ## 9\. Nghiệp vụ RTDB config, listener và event state
 ### Service account path
-*   Decode `GOOGLE_SERVICE_ACCOUNT_B64` thành JSON object trong memory.
-*   `admin.initializeApp({credential: cert(serviceAccount), databaseURL})`.
-*   Không ghi file service account ra disk.
+*   Decode `GOOGLE_SERVICE_ACCOUNT_B64` thành JSON object trong memory; không ghi file ra disk.
+*   `admin.initializeApp({credential: cert({projectId, clientEmail, privateKey}), databaseURL})` — chú ý `cert()` nhận **object** (hoặc path file), không nhận chuỗi JSON.
+*   `RTDB_URL` có thể chứa child path prefix (ví dụ `/config-code-dh-hospital`). `databaseURL` của SDK phải là **root** (`scheme://host`); app tự tách prefix và dán vào mọi ref (`splitDatabaseUrl`).
+*   Transport **hybrid** (`AdminRtdbClient`): listener `onChildAdded` chạy qua SDK (replay existing children rồi live add, callback async được bọc try/catch, không crash); CRUD + transaction delegate sang REST client (path chứa dấu `.` như `config.json` không ref được qua SDK).
+*   `createRtdbClientFromEnv()` là **async**, ưu tiên Admin SDK khi có `GOOGLE_SERVICE_ACCOUNT_B64`; SDK khởi tạo lỗi → trả về REST thuần.
 ### Fallback secret path
 *   Chỉ khi không có service account, dùng `RTDB_AUTH_SECRET` cho REST/SSE.
 *   Không log URL sau khi gắn secret.
-*   Nên coi fallback là compatibility/test path; production ưu tiên Admin SDK.
+*   Nên coi fallback là compatibility/test path; production ưu tiên Admin SDK (REST SSE bị proxy / GitHub-hosted runner cắt sau thời gian idle).
 ### Event lifecycle
 `pending → processing → processed|failed`
 *   Listener đọc `child_added`.
