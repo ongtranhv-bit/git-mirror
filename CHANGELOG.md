@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### RTDB listener qua firebase-admin SDK
+
+- Thay listener SSE tự viết bằng `firebase-admin` Realtime Database SDK: `onChildAdded` dùng WebSocket/long-polling, tự reconnect và keep-alive — chịu được proxy cắt stream dài (GitHub-hosted runner, codespace) mà REST SSE bị chết âm thầm sau vài phút idle.
+- Transport **hybrid** (`AdminRtdbClient`): listener qua SDK, CRUD/transaction vẫn qua REST (path chứa dấu `.` như `config.json` không ref được qua SDK); `RTDB_URL` có thể kèm child path prefix (ví dụ `/config-code-dh-hospital`) — SDK dùng URL root, prefix được tách và dán vào mọi ref.
+- `createRtdbClientFromEnv()` chuyển **async**, ưu tiên Admin SDK khi có `GOOGLE_SERVICE_ACCOUNT_B64`; SDK khởi tạo lỗi → tự fallback REST thuần; không có SA → `RTDB_AUTH_SECRET` REST/SSE như cũ.
+- Sửa `RestRtdbClient` nối `.json` kép vào path đã có `.json` (gây `Invalid token in path` 400 cho `/sync/config.json`).
+- Tách `createServiceAccountTokenProvider` sang `src/rtdb/token.ts` để tránh circular import.
+- Dependency mới: `firebase-admin@14` → `npm ci` giờ cần truy cập npm registry (xem DEPLOY.md).
+- Verified live: push → worker xử lý trong **5s** (trước: 60–90s qua poll, 1–2 giờ trước fix watchdog), 6/6 destination synced liên tiếp trên GitHub-hosted runner. 92/92 tests, typecheck/lint/build/security-scan PASS.
+
 ### Performance
 
 - Many-to-one destination workspace dùng **blobless + sparse clone** (`--filter=blob:none` + sparse-checkout cone): instance mới chỉ tải ~7MB thay vì clone full monorepo ~5GB. Verified live trên Azure `code-dh-hospital-all`: toàn bộ event (6 destinations) từ >10 phút xuống ~22s; commit+push tạo/verify/xóa branch tạm trên Azure không đụng `main`.

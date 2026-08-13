@@ -21,7 +21,7 @@ Sao chép `.env.example` thành `.env`. Không commit `.env`.
 | `CONFIG_FILE` | Không | File JSON local |
 | `RTDB_URL` | Có khi dùng RTDB | Base URL database |
 | `RTDB_CONFIG_PATH` | Không | Mặc định `/sync/config` |
-| `GOOGLE_SERVICE_ACCOUNT_B64` | Khuyến nghị | Toàn bộ service-account JSON encode base64 |
+| `GOOGLE_SERVICE_ACCOUNT_B64` | Khuyến nghị | Toàn bộ service-account JSON encode base64 — kích hoạt listener realtime qua `firebase-admin` SDK |
 | `RTDB_AUTH_SECRET` | Fallback | Secret legacy gắn `auth` trong request, không log URL hoàn chỉnh |
 | `INSTANCE_ID` | Không | Mặc định hostname-pid-random |
 | PAT variables | Theo config | Source/destination token tham chiếu `${NAME}` |
@@ -61,7 +61,7 @@ node dist/cli.js run --once
 
 ## 5. Docker
 
-Docker image tự chạy `npm ci` và build TypeScript trong build stage. Compiler TypeScript được vendored dưới `vendor/typescript`, nên bước build không phụ thuộc npm registry:
+Docker image tự chạy `npm ci` và build TypeScript trong build stage. Compiler TypeScript được vendored dưới `vendor/typescript`, nhưng `firebase-admin` là dependency từ npm registry — **bước `npm ci` cần truy cập registry.npmjs.org** (Dockerfile nên có `RUN npm ci` trong stage build có network):
 
 ```bash
 docker build -t git-mirror-sync-service:0.2.0 .

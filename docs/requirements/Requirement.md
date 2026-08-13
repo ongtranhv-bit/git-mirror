@@ -51,17 +51,18 @@ GitHub push (nhiều repo bắn noti vào)
 | ---| ---| --- |
 | `CONFIG_JSON` | không | Raw JSON (hoặc base64) — dùng để test, ưu tiên cao nhất |
 | `CONFIG_FILE` | không | Đường dẫn file JSON local |
-| `RTDB_URL` | có (khi dùng RTDB) | Base URL database, ví dụ `https://x.firebaseio.com` |
+| `RTDB_URL` | có (khi dùng RTDB) | Base URL database, ví dụ `https://x.firebaseio.com`; có thể kèm child path prefix, ví dụ `https://x.firebaseio.com/config-code-dh-hospital` — SDK tự tách root + prefix |
 | `RTDB_CONFIG_PATH` | không | Path node chứa config, mặc định `/sync/config` |
 | `RTDB_AUTH_SECRET` | không | Env riêng cho secret gắn `?auth=` khi không có service account |
 | `GOOGLE_SERVICE_ACCOUNT_B64` | không | Service account JSON dạng base64 |
 | `INSTANCE_ID` | không | Mặc định `hostname-pid-random` |
 
 **Quy tắc chọn cách kết nối RTDB (đã chốt):**
-1. Có `GOOGLE_SERVICE_ACCOUNT_B64` → decode base64, dùng `firebase-admin` (đường chính: realtime listener + transaction).
+1. Có `GOOGLE_SERVICE_ACCOUNT_B64` → decode base64, dùng **hybrid**: listener realtime (`onChildAdded`) qua `firebase-admin` SDK (WebSocket/long-polling, tự reconnect — chịu được proxy / stream dài bị cắt), CRUD + transaction qua REST. Nếu SDK không khởi tạo được → tự fallback REST thuần.
 2. Không có → fallback dùng `RTDB_AUTH_SECRET` gắn `?auth=` vào URL, đi qua REST/SSE.
 3. Không có cả hai → chỉ chạy được chế độ raw JSON / `--dry-run`, fail-fast với thông báo rõ.
 > Secret **không nằm sẵn** trong `RTDB_URL`; app tự ghép lúc gọi để không lộ URL đầy đủ trong log.
+> Lưu ý: REST stream (SSE) bị cắt âm thầm trên GitHub-hosted runner / proxy sau thời gian idle — không dùng làm listener chính khi đã có service account.
 ### 3.2 Lưu trữ
 *   Config lưu trên RTDB dưới dạng **chuỗi base64** của JSON (tránh vấn đề ký tự đặc biệt / key không hợp lệ của RTDB).
 *   App: `base64 → utf8 → JSON.parse → validate schema` rồi mới dùng.
@@ -342,7 +343,7 @@ Yêu cầu: nhiều instance chạy cùng lúc, **một event chỉ được x�
 | Nhu cầu | Package | Ghi chú |
 | ---| ---| --- |
 | Ngôn ngữ / build | `typescript`, `tsx` (dev), `tsup`/`tsc` (build) | ESM, strict mode |
-| RTDB (service account) | `firebase-admin` | listener realtime + transaction |
+| RTDB (service account) | `firebase-admin` | SDK realtime (`onChildAdded`) — WebSocket/long-polling, tự reconnect, chịu proxy/network xấu; CRUD/transaction vẫn qua REST |
 | RTDB (URL + auth secret) | `undici` / fetch built-in | REST + SSE khi không có SA |
 | Git commands | `simple-git` | wrapper git binary, hỗ trợ `-c http.extraHeader` |
 | Gộp thư mục con (N→1) | `git subtree` của git binary | không tự code, dùng lệnh sẵn |

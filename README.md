@@ -135,12 +135,13 @@ Chi tiết trong [`USAGE.md`](USAGE.md), triển khai trong [`DEPLOY.md`](DEPLOY
 | --- | --- |
 | Runtime/build | Node.js 22, TypeScript strict, `tsc` 5.8.3 vendored dưới `vendor/typescript` |
 | Git | Git CLI qua `child_process.spawn` |
-| RTDB | Native `fetch`: REST, ETag transaction và SSE |
+| RTDB listener | `firebase-admin` SDK `onChildAdded` (WebSocket/long-polling, tự reconnect; chỉ dùng khi có service account) |
+| RTDB CRUD/transaction | Native `fetch`: REST, ETag transaction; SSE chỉ ở fallback `RTDB_AUTH_SECRET` |
 | Service account | OAuth JWT RS256 bằng `node:crypto` |
 | Queue/retry/log | Module nhỏ dùng Node built-in |
 | Test | `node:test`, Git bare repositories |
 
-Implementation guide đề xuất Zod, firebase-admin, simple-git, pino, p-queue, p-retry và Vitest. Registry npm trong môi trường triển khai trả 404 và DNS ngoài không khả dụng, nên bản bàn giao dùng Node built-in và vendored TypeScript compiler để `npm ci`, build và test vẫn chạy được trên máy sạch mà không giả lập lockfile. Quyết định này được ghi trong [`CHANGELOG.md`](CHANGELOG.md).
+Implementation guide đề xuất Zod, simple-git, pino, p-queue, p-retry và Vitest. Registry npm trong môi trường triển khai trả 404 và DNS ngoài không khả dụng, nên bản bàn giao dùng Node built-in và vendored TypeScript compiler. Từ 0.2.1, `firebase-admin` được thêm làm dependency cho RTDB listener realtime chịu proxy — `npm ci`/build cần truy cập registry.npmjs.org. Quyết định này được ghi trong [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Giới hạn hiện tại
 
