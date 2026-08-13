@@ -121,6 +121,7 @@ export interface SrcFilterConfig {
 export interface SourceConfig {
   creds: Record<string, CredentialConfig>;
   filter?: SrcFilterConfig;
+  orgs?: string[];
 }
 
 export interface HookEvent {

@@ -18,6 +18,27 @@ import { shouldPublishRuntimeStatus, startRuntimeStatus } from '../codespace/run
 import { createShutdownController } from './shutdown.js';
 import { bridgeOnce, bridgePendingEvents } from '../webhook/github-bridge.js';
 
+async function runRecoveryLoop(input: {
+  options: EventProcessorOptions;
+  config: AppConfig;
+  bridge?: boolean;
+  logger: Logger;
+}): Promise<void> {
+  const recovered = await recoverExpiredJobs(input.options.client, input.config.rtdb);
+  if (recovered > 0) input.logger.info({ recovered }, 'event.reaper_recovered');
+  const pending = await processAllPending(input.options);
+  if (pending > 0) input.logger.info({ pending }, 'event.reaper_pending_processed');
+  if (input.bridge) {
+    const caughtUp = await bridgeOnce({
+      client: input.options.client,
+      config: input.config,
+      logger: input.logger,
+      webhookPath: process.env.WEBHOOK_PATH ?? input.config.rtdb.webhookPath,
+    });
+    if (caughtUp.processed > 0) input.logger.info({ processed: caughtUp.processed }, 'event.reaper_bridge_processed');
+  }
+}
+
 export function createInstanceId(): string {
   return `${hostname()}-${process.pid}-${randomBytes(4).toString('hex')}`.replace(/[^A-Za-z0-9_-]/g, '-');
 }
@@ -106,7 +127,7 @@ export async function runWorker(input: {
     shutdown = createShutdownController();
     keepalive = startCodespaceKeepalive({ config: input.config.runtime.codespaceKeepalive, logger: input.logger });
     reaper = setInterval(
-      () => void recoverExpiredJobs(input.client, input.config.rtdb)
+      () => void runRecoveryLoop({ options, config: input.config, bridge: input.bridge, logger: input.logger })
         .catch((error) => input.logger.warn({ error: toPublicError(error) }, 'event.reaper_failed')),
       Math.max(5_000, input.config.runtime.heartbeatSeconds * 1_000),
     );
