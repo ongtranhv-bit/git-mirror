@@ -239,28 +239,20 @@ export async function getCommitInfo(
   sha: string,
   timeoutMs: number,
 ): Promise<CommitInfo> {
-  const format = JSON.stringify({
-    subject: '%s',
-    body: '%b',
-    authorName: '%an',
-    authorEmail: '%ae',
-    authorDate: '%ai',
-    committerName: '%cn',
-    committerEmail: '%ce',
-    committerDate: '%ci',
-  });
+  const format = ['%s', '%b', '%an', '%ae', '%ai', '%cn', '%ce', '%ci'].join('%x00');
   const result = await runGit(['show', '-s', `--format=${format}`, sha], { cwd: workspace, timeoutMs });
   try {
-    const info = JSON.parse(result.stdout.trim());
+    const [subject, body, authorName, authorEmail, authorDate, committerName, committerEmail, committerDate] =
+      result.stdout.trim().split('\0');
     return {
-      subject: info.subject || sha.slice(0, 12),
-      body: (info.body || '').trim(),
-      authorName: info.authorName || 'unknown',
-      authorEmail: info.authorEmail || 'unknown@unknown',
-      authorDate: info.authorDate || new Date().toISOString(),
-      committerName: info.committerName || 'unknown',
-      committerEmail: info.committerEmail || 'unknown@unknown',
-      committerDate: info.committerDate || new Date().toISOString(),
+      subject: subject || sha.slice(0, 12),
+      body: (body || '').trim(),
+      authorName: authorName || 'unknown',
+      authorEmail: authorEmail || 'unknown@unknown',
+      authorDate: authorDate || new Date().toISOString(),
+      committerName: committerName || 'unknown',
+      committerEmail: committerEmail || 'unknown@unknown',
+      committerDate: committerDate || new Date().toISOString(),
       sha,
       shortSha: sha.slice(0, 12),
     };
