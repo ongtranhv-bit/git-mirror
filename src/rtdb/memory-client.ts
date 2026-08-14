@@ -3,6 +3,7 @@ import type { RtdbClient, TransactionResult } from './client.js';
 export class MemoryRtdbClient implements RtdbClient {
   private data: Record<string, unknown> = {};
   private listeners = new Map<string, Set<(key: string, value: unknown) => void | Promise<void>>>();
+  private valueListeners = new Map<string, Set<(value: unknown) => void | Promise<void>>>();
   private transactionChain: Promise<void> = Promise.resolve();
 
   async get<T>(path: string): Promise<T | null> {
@@ -63,9 +64,26 @@ export class MemoryRtdbClient implements RtdbClient {
     return () => callbacks.delete(callback as (key: string, value: unknown) => void | Promise<void>);
   }
 
+  watchValue<T>(path: string, callback: (value: T | null) => void | Promise<void>): () => void {
+    const normalized = normalize(path);
+    const callbacks = this.valueListeners.get(normalized) ?? new Set();
+    callbacks.add(callback as (value: unknown) => void | Promise<void>);
+    this.valueListeners.set(normalized, callbacks);
+    void this.get<T>(path).then((existing) => callback(existing));
+    return () => callbacks.delete(callback as (value: unknown) => void | Promise<void>);
+  }
+
   private async emit(parentPath: string, key: string, value: unknown): Promise<void> {
-    if (value === null) return;
-    for (const callback of this.listeners.get(normalize(parentPath)) ?? []) await callback(key, structuredClone(value));
+    if (value !== null) {
+      for (const callback of this.listeners.get(normalize(parentPath)) ?? []) await callback(key, structuredClone(value));
+    }
+    const changed = normalize(`${parentPath}/${key}`);
+    for (const [watched, callbacks] of this.valueListeners) {
+      if (changed === watched || changed.startsWith(`${watched}/`)) {
+        const current = await this.get(watched);
+        for (const callback of callbacks) await callback(current);
+      }
+    }
   }
 }
 

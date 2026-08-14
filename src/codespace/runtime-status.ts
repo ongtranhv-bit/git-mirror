@@ -9,6 +9,7 @@ export function shouldPublishRuntimeStatus(env: NodeJS.ProcessEnv = process.env)
 export interface RuntimeStatusController {
   markReady(): Promise<void>;
   stop(): Promise<void>;
+  reschedule(intervalSeconds: number): void;
 }
 
 export function startRuntimeStatus(input: {
@@ -41,8 +42,12 @@ export function startRuntimeStatus(input: {
   });
   const write = async () => input.client.set(`${path}/${input.instanceId}`, base());
   void write().catch(() => undefined);
-  const timer = setInterval(() => void write().catch(() => undefined), input.intervalSeconds * 1_000);
-  timer.unref();
+  let timer: ReturnType<typeof setInterval> | undefined;
+  const start = () => {
+    timer = setInterval(() => void write().catch(() => undefined), input.intervalSeconds * 1_000);
+    timer.unref();
+  };
+  start();
   return {
     markReady: async () => {
       listenerAttached = true;
@@ -51,10 +56,16 @@ export function startRuntimeStatus(input: {
       await write();
     },
     stop: async () => {
-      clearInterval(timer);
+      if (timer) clearInterval(timer);
+      timer = undefined;
       status = 'stopped';
       listenerAttached = false;
       await write();
+    },
+    reschedule: (intervalSeconds: number) => {
+      if (timer) clearInterval(timer);
+      input.intervalSeconds = intervalSeconds;
+      start();
     },
   };
 }

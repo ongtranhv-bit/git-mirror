@@ -92,6 +92,7 @@ export interface RtdbPaths {
   locksPath: string;
   instancesPath: string;
   processedByCommitPath: string;
+  runnerPath: string;
   retentionDays: number;
 }
 

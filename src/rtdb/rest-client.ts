@@ -1,6 +1,7 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { AppError } from '../shared/errors.js';
 import { createLogger, type Logger } from '../shared/logger.js';
+import { stableHash } from '../shared/paths.js';
 import type { RtdbClient, TransactionResult } from './client.js';
 
 export interface AuthTokenProvider {
@@ -73,6 +74,115 @@ export class RestRtdbClient implements RtdbClient {
     const controller = new AbortController();
     void this.sseLoop(path, callback, controller.signal);
     return () => controller.abort();
+  }
+
+  watchValue<T>(path: string, callback: (value: T | null) => void | Promise<void>): () => void {
+    const controller = new AbortController();
+    void this.valueSseLoop(path, callback, controller.signal);
+    return () => controller.abort();
+  }
+
+  private async valueSseLoop<T>(
+    path: string,
+    callback: (value: T | null) => void | Promise<void>,
+    signal: AbortSignal,
+  ): Promise<void> {
+    let lastHash: string | undefined;
+    const maybeNotify = async (value: T | null): Promise<void> => {
+      const hash = value === null || value === undefined ? 'null' : stableHash(JSON.stringify(value));
+      if (hash === lastHash) return;
+      lastHash = hash;
+      await callback(value === undefined ? null : value);
+    };
+    try {
+      await maybeNotify(await this.get<T>(path));
+    } catch (error) {
+      this.logger.warn({ path: normalizePath(path), error: error instanceof Error ? error.message : String(error) }, 'rtdb.watch_initial_failed');
+    }
+    let reconnects = 0;
+    while (!signal.aborted) {
+      let reason = 'disconnected';
+      const connection = new AbortController();
+      const watchdog = setTimeout(() => {
+        reason = 'idle-timeout';
+        connection.abort();
+      }, SSE_IDLE_TIMEOUT_MS);
+      watchdog.unref();
+      try {
+        const headers = await this.headers({ Accept: 'text/event-stream' });
+        const response = await fetch(await this.url(path), {
+          headers,
+          signal: AbortSignal.any([signal, connection.signal]),
+        });
+        if (!response.ok || !response.body) {
+          throw new AppError('RTDB_SSE_FAILED', `RTDB SSE returned HTTP ${response.status}.`, {
+            status: response.status,
+            retryable: response.status >= 500,
+          });
+        }
+        const decoder = new TextDecoder();
+        const reader = response.body.getReader();
+        let buffer = '';
+        while (!signal.aborted) {
+          const { done, value } = await reader.read();
+          if (done) {
+            reason = 'stream-ended';
+            break;
+          }
+          watchdog.refresh();
+          buffer += decoder.decode(value, { stream: true });
+          let boundary = buffer.indexOf('\n\n');
+          while (boundary >= 0) {
+            const block = buffer.slice(0, boundary);
+            buffer = buffer.slice(boundary + 2);
+            await this.handleValueSseBlock(block, path, maybeNotify);
+            boundary = buffer.indexOf('\n\n');
+          }
+        }
+      } catch (error) {
+        if (signal.aborted) return;
+        reason = error instanceof AppError ? error.message : error instanceof Error ? error.message : String(error);
+      } finally {
+        if (signal.aborted) return;
+        clearTimeout(watchdog);
+        connection.abort();
+        lastHash = undefined;
+        reconnects += 1;
+        this.logger.warn(
+          { path: normalizePath(path), reason, reconnect: reconnects },
+          'rtdb.watch_sse_reconnect',
+        );
+        const backoff = Math.min(SSE_RECONNECT_BASE_MS * 2 ** Math.min(reconnects - 1, 4), SSE_RECONNECT_MAX_MS);
+        await delay(backoff, undefined, { signal }).catch(() => undefined);
+      }
+    }
+  }
+
+  private async handleValueSseBlock<T>(
+    block: string,
+    path: string,
+    maybeNotify: (value: T | null) => Promise<void>,
+  ): Promise<void> {
+    const event = block
+      .split('\n')
+      .find((line) => line.startsWith('event:'))
+      ?.slice('event:'.length)
+      .trim();
+    const dataText = block
+      .split('\n')
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice('data:'.length).trim())
+      .join('');
+    if (!dataText || event === 'keep-alive' || event === 'cancel' || event === 'auth_revoked') return;
+    const envelope = JSON.parse(dataText) as { path: string; data: unknown };
+    if (envelope.path === '/' && 'data' in envelope) {
+      await maybeNotify(envelope.data as T | null);
+      return;
+    }
+    if (envelope.path !== '/' && envelope.data !== undefined) {
+      const current = await this.get<T>(path);
+      await maybeNotify(current);
+    }
   }
 
   private async sseLoop<T>(

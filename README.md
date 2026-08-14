@@ -24,6 +24,11 @@ transaction claim ──> /processing/{eventId}
 
 Mỗi process xử lý tuần tự. Nhiều instance dùng RTDB transaction để claim event và lock theo destination repository. Cache được tách theo `instanceId`, nên không có hai process cùng sửa một Git worktree.
 
+**Runner singleton + hot reload (0.3.0):**
+- Runner (GitHub Actions / Azure Pipelines / manual) tự nhận diện bằng key `owner/repo + workflow file` (hoặc pipeline id) và claim lease tại `/sync/runners/<key>`. Cùng key chỉ 1 instance hoạt động: instance mới chiếm quyền (bump generation), instance cũ xong event đang dở rồi thoát; giao đoạn chuyển tiếp an toàn nhờ dedup theo commit.
+- Config tại `/sync/config` được watch realtime; thay đổi hợp lệ được áp dụng ngay không cần restart (per-event config snapshot). Field ảnh hưởng runtime (`runtime.workdir`) sẽ ghi warning và thoát để orchestrator (docker restart / CI schedule) chạy lại với config mới.
+- Env mới: `CONFIG_AUTO_RELOAD`, `RUNNER_KEY`, `RUNNER_REGISTRY_DISABLED`, `RUNNER_WORKFLOW_FILE`, `RTDB_RUNNER_PATH`. Chi tiết trong `.env.example` và `DEPLOY.md`.
+
 Codespace Rotation 0.2.0 là control plane độc lập: GitHub Actions/operator tạo Codespace kế nhiệm, chờ worker publish readiness + đúng runtime commit SHA vào RTDB, transaction promote `/sync/codespace/active`, rồi mới stop Codespace cũ. Rotation dùng global lease `/sync/codespace/lock` và config riêng `/sync/codespace/config`; xem [`docs/CODESPACE_ROTATION.md`](docs/CODESPACE_ROTATION.md).
 
 ## Schema v6

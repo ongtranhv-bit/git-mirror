@@ -190,7 +190,10 @@ export function buildSyncCommitMessage(input: {
   };
   const subject = renderTemplate(input.commit.template, values).trim();
   const trailers = Object.entries(input.commit.trailers)
-    .map(([key, template]) => `${key}: ${renderTemplate(template, values)}`)
+    .map(([key, template]) => {
+      const value = renderTemplate(template, values).replace(/\n/g, '\n  ');
+      return `${key}: ${value}`;
+    })
     .join('\n');
   return `${subject}\n\n${trailers}`;
 }

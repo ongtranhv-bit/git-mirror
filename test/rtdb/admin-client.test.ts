@@ -6,14 +6,17 @@ import { MemoryRtdbClient } from '../../src/rtdb/memory-client.js';
 interface FakeDatabase {
   store: Map<string, unknown>;
   listeners: Map<string, Array<(snapshot: { key: string | null; val: () => unknown }) => void>>;
+  valueListeners: Map<string, Array<(snapshot: { key: string | null; val: () => unknown }) => void>>;
   set(path: string, value: unknown): Promise<void>;
   remove(path: string): Promise<void>;
   onChildAdded(path: string, listener: (snapshot: { key: string | null; val: () => unknown }) => void): () => void;
+  onValue(path: string, listener: (snapshot: { key: string | null; val: () => unknown }) => void): () => void;
 }
 
 function createFakeDatabase(): FakeDatabase {
   const store = new Map<string, unknown>();
   const listeners = new Map<string, Array<(snapshot: { key: string | null; val: () => unknown }) => void>>();
+  const valueListeners = new Map<string, Array<(snapshot: { key: string | null; val: () => unknown }) => void>>();
   const norm = (path: string): string => path.replace(/^\/+|\/+$/g, '');
   const emit = (path: string, value: unknown): void => {
     const normalized = norm(path);
@@ -23,10 +26,17 @@ function createFakeDatabase(): FakeDatabase {
         for (const listener of list) listener({ key, val: () => value });
       }
     }
+    for (const [listenPath, list] of valueListeners) {
+      if (normalized === listenPath || normalized.startsWith(`${listenPath}/`)) {
+        const snapshot = store.get(listenPath) ?? null;
+        for (const listener of list) listener({ key: listenPath.split('/').at(-1) ?? null, val: () => snapshot });
+      }
+    }
   };
   return {
     store,
     listeners,
+    valueListeners,
     async set(path: string, value: unknown): Promise<void> {
       store.set(norm(path), value);
       emit(path, value);
@@ -47,6 +57,16 @@ function createFakeDatabase(): FakeDatabase {
         listeners.set(normalized, (listeners.get(normalized) ?? []).filter((item) => item !== listener));
       };
     },
+    onValue(path: string, listener: (snapshot: { key: string | null; val: () => unknown }) => void): () => void {
+      const normalized = norm(path);
+      const list = valueListeners.get(normalized) ?? [];
+      list.push(listener);
+      valueListeners.set(normalized, list);
+      listener({ key: normalized.split('/').at(-1) ?? null, val: () => store.get(normalized) ?? null });
+      return () => {
+        valueListeners.set(normalized, (valueListeners.get(normalized) ?? []).filter((item) => item !== listener));
+      };
+    },
   };
 }
 
@@ -56,9 +76,15 @@ function createClient(db: FakeDatabase, prefix = ''): AdminRtdbClient {
     let unsubscribe: (() => void) | undefined;
     return {
       on: (event: string, listener: (snapshot: { key: string | null; val: () => unknown }) => void) => {
-        assert.equal(event, 'child_added');
-        unsubscribe = db.onChildAdded(normalized, listener);
-        return unsubscribe;
+        if (event === 'child_added') {
+          unsubscribe = db.onChildAdded(normalized, listener);
+          return unsubscribe;
+        }
+        if (event === 'value') {
+          unsubscribe = db.onValue(normalized, listener);
+          return unsubscribe;
+        }
+        throw new Error(`unexpected event ${event}`);
       },
       off: () => {
         unsubscribe?.();
@@ -104,4 +130,20 @@ test('admin client onChildAdded listens under the configured prefix', async () =
   await db.set('config-code-dh-hospital/events/three', { id: 3 });
   await new Promise((resolve) => setTimeout(resolve, 10));
   assert.deepEqual(received, ['one', 'two']);
+});
+
+test('admin client watchValue reports initial value and changes', async () => {
+  const db = createFakeDatabase();
+  const client = createClient(db, 'config-code-dh-hospital');
+  await db.set('config-code-dh-hospital/config', 'base64-v1');
+  const received: Array<string | null> = [];
+  const off = client.watchValue<string>('/config', (value) => { received.push(value); });
+  assert.deepEqual(received, ['base64-v1']);
+  await db.set('config-code-dh-hospital/config', 'base64-v2');
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.deepEqual(received, ['base64-v1', 'base64-v2']);
+  off();
+  await db.set('config-code-dh-hospital/config', 'base64-v3');
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.deepEqual(received, ['base64-v1', 'base64-v2']);
 });
